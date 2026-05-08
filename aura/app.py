@@ -9,6 +9,7 @@ from flask import Flask, render_template
 from config import (
     DB_PATH,
     IMAGE_MODEL,
+    PORT,
     SILICONFLOW_API_KEY,
     SILICONFLOW_BASE,
     TEXT_MODEL,
@@ -64,7 +65,7 @@ if __name__ == "__main__":
     _print_banner()
     start_background_workers()
     print("=" * 58)
-    print("  → http://localhost:5000")
+    print(f"  → http://localhost:{PORT}")
     print("=" * 58)
     # use_reloader=False is CRITICAL — reloader would double-spawn background threads
-    app.run(debug=True, threaded=True, port=5000, use_reloader=False)
+    app.run(debug=True, threaded=True, port=PORT, use_reloader=False)
