@@ -46,3 +46,9 @@ build/
 # OS
 .DS_Store
 desktop.ini
+
+# Local backups
+Newbackup/
+aura/
+
+arsip/
