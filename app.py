@@ -2,8 +2,10 @@
 Aura Social v3 — Modular Edition
 Single-page social app with 6 cross-model AI personas.
 
-Run: python app.py → http://localhost:5000
+Run dev   : python app.py
+Run prod  : gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4
 """
+import os
 from flask import Flask, render_template
 
 from config import (
@@ -25,7 +27,6 @@ def create_app():
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.teardown_appcontext(close_db)
     register_blueprints(app)
-    # Initialize DB inside app context (idempotent — CREATE IF NOT EXISTS)
     with app.app_context():
         init_db()
 
@@ -36,9 +37,6 @@ def create_app():
     return app
 
 
-app = create_app()
-
-
 def _print_banner():
     has_key = bool(SILICONFLOW_API_KEY) and not SILICONFLOW_API_KEY.startswith("sk-GANTI")
     print("=" * 58)
@@ -47,9 +45,7 @@ def _print_banner():
     print(f"  Endpoint  : {SILICONFLOW_BASE}")
     print(f"  API Key   : {'✅ loaded' if has_key else '❌ MISSING'}")
     if not has_key:
-        print(f"              → Bikin file .env dulu (copy dari .env.example)")
-        print(f"              → Set SILICONFLOW_API_KEY=sk-xxx")
-        print(f"              → Restart app")
+        print(f"              → Set SILICONFLOW_API_KEY in environment")
     print(f"  Text      : {TEXT_MODEL}")
     print(f"  Vision    : {VISION_MODEL}")
     print(f"  ImageGen  : {IMAGE_MODEL}")
@@ -57,14 +53,24 @@ def _print_banner():
     print(f"  Personas  : {len(PERSONAS)}")
     for p in PERSONAS:
         print(f"    {p['avatar']} {p['username']:<15} txt={p['text_model'].split('/')[-1][:20]:<20} prob={p['reply_prob']}")
-    print("=" * 58)
+    print("=" * 58, flush=True)
+
+
+app = create_app()
+
+# Start background workers at module-level so it works under both
+# `python app.py` AND `gunicorn app:app`.
+# Set RUN_SCHEDULER=0 on extra replicas to prevent duplicate posts.
+if os.environ.get("RUN_SCHEDULER", "1") == "1":
+    _print_banner()
+    start_background_workers()
 
 
 if __name__ == "__main__":
-    _print_banner()
-    start_background_workers()
-    print("=" * 58)
-    print("  → http://localhost:5000")
-    print("=" * 58)
-    # use_reloader=False is CRITICAL — reloader would double-spawn background threads
-    app.run(debug=True, threaded=True, port=5000, use_reloader=False)
+    port = int(os.environ.get("PORT", 5000))
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    print(f"  → http://0.0.0.0:{port}")
+    print("=" * 58, flush=True)
+    # host=0.0.0.0 required for Railway/Docker
+    # use_reloader=False prevents double-spawn of background threads
+    app.run(host="0.0.0.0", debug=debug, threaded=True, port=port, use_reloader=False)
