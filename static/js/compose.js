@@ -158,7 +158,6 @@ async function subPost() {
       loadFeed();
       // Refresh daily banner — should hide now
       if (typeof loadDailyBanner === 'function') loadDailyBanner();
-      if (typeof loadStreak === 'function') loadStreak();
     } else {
       showToast('❌ Gagal');
     }

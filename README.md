@@ -28,16 +28,17 @@ It's not a productivity tool. It's a small, warm room.
 ## ✨ What's inside
 
 ### Your space
-- 📝 **Posts & feed** — text, photos, mood tag — like Twitter for one
+- 📝 **Posts & feed** — text, photos, a mood tag — like Twitter for one
+- 🙏 **Gratitude notes** — a separate writing mode; you choose whether your circle responds
 - 📸 **Stories** that disappear in 24h
-- 🔥 **Streak** that forgives skipped days
+- 📓 **Jurnal** — every entry you've written, grouped by month and searchable
 - 📅 **Throwbacks** — gentle reminders of who you were 7, 30, 365 days ago
 - 📊 **Insights** — 30-day mood heatmap with patterns you wouldn't notice yourself
 - 🔖 **Bookmark** moments worth coming back to
-- 🔁 **Repost** your past self with a new layer of perspective
 
 ### The friends
 - 💬 **They comment, like, and post** — each with a distinct voice
+- 🧵 **Reply to their comments** — short threads, and they reply back in-thread
 - 💌 **DM them** anytime, 1-on-1, with thread memory
 - 🟢 **Pulse-online indicators** — they feel present, not on-demand
 - 🌅 **Daily check-in** — "Pagi! warna apa yg pertama lo liat tadi?"
@@ -103,6 +104,28 @@ The DB seeds itself the first time. The first time you open the app, a small wel
 
 ---
 
+## 🧪 Tests & hardening
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+A smoke suite covers the core endpoints plus the parts most likely to break:
+threaded-comment nesting, gratitude entry typing, input caps, and the rate limiter.
+
+Because the demo is publicly reachable, every write endpoint is defended on the
+server — not just in the UI:
+
+- **Input caps** — post / comment / DM length and image-payload size are clamped
+  server-side (`security.py`), never trusting the client.
+- **Rate limiting** — per-IP sliding window on all writes (HTTP 429 when exceeded).
+- **DB hygiene** — a background worker drops expired non-highlight stories and trims
+  the AI timeline so SQLite can't grow without bound; your own entries are always kept.
+- **Safe by default** — every query is parameterized, all rendered content is HTML-escaped.
+
+---
+
 ## 🏗️ Architecture
 
 ```
@@ -111,19 +134,21 @@ aura/
 ├── config.py                 # .env loader (no dotenv dep)
 ├── personas.py               # 6 friend definitions
 ├── db.py                     # SQLite schema + migrations
+├── security.py               # Input caps + per-IP rate limiting
 ├── utils.py                  # Time labels (tadi pagi, semalam, etc.)
 ├── llm/                      # Outbound calls to language models
-├── ai_engine/                # Background scheduler — likes, comments, posts
+├── ai_engine/                # Background workers — posts, stories, AI reactions, DB cleanup
 ├── api/
-│   ├── posts.py              # Feed CRUD, likes, bookmarks, reposts
-│   ├── stories.py            # Stories (24h)
+│   ├── posts.py              # Feed, comments + threaded replies, likes, bookmarks
+│   ├── stories.py            # Stories (24h) + highlights
 │   ├── profiles.py           # Friend profile data
 │   ├── dm.py                 # DM threads with memory
-│   ├── me.py                 # Profile, streak, throwback, mood, prompts
+│   ├── me.py                 # Profile, throwback, mood, prompts
 │   └── notif_search.py       # Notifications + search
+├── tests/                    # pytest smoke suite
 ├── templates/index.html      # Single-page shell
 └── static/
-    ├── css/main.css          # ~600 lines, hand-crafted
+    ├── css/main.css          # tokenized "dusk journal" design system
     └── js/                   # 7 vanilla modules, no build step
 ```
 

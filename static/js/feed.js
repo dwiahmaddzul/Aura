@@ -408,10 +408,3 @@ function doSearch(v) {
   searchTimer = setTimeout(() => renderArsip(q), 200);
 }
 window.doSearch = doSearch;
-
-function tgFollow(b) {
-  b.classList.toggle('on');
-  b.textContent = b.classList.contains('on') ? 'Following' : 'Follow';
-  showToast(b.classList.contains('on') ? '✅ Following!' : '👋 Unfollow');
-}
-window.tgFollow = tgFollow;

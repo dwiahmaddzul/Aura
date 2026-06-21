@@ -14,6 +14,7 @@ from config import DB_PATH
 from db import get_db
 from personas import PERSONAS, PMAP
 from utils import time_ago
+from security import cap, image_too_big, rate_limit, MAX_POST, MAX_COMMENT
 from llm.generators import comment_text, describe_image
 from ai_engine.responder import schedule_responses
 
@@ -116,9 +117,10 @@ def api_image(pid):
 
 
 @bp.route("/api/posts", methods=["POST"])
+@rate_limit(max_calls=12, window=60)
 def api_create():
     data = request.get_json() or {}
-    content = data.get("content", "").strip()
+    content = cap(data.get("content", ""), MAX_POST)
     img = data.get("image_b64")
     mood = data.get("mood")  # optional: senang/sedih/capek/excited/bingung/tenang
     ptype = data.get("post_type")
@@ -127,6 +129,8 @@ def api_create():
         ptype = None
     if not content and not img:
         return jsonify({"error": "kosong"}), 400
+    if image_too_big(img):
+        return jsonify({"error": "Gambar terlalu besar (maks ~2MB)"}), 413
     final_type = ptype or ("image" if img else "text")
     db = get_db()
     pid = db.execute(
@@ -182,9 +186,10 @@ def api_like(pid):
 
 
 @bp.route("/api/posts/<int:pid>/comment", methods=["POST"])
+@rate_limit(max_calls=20, window=60)
 def api_comment(pid):
     data = request.get_json() or {}
-    txt = data.get("text", "").strip()
+    txt = cap(data.get("text", ""), MAX_COMMENT)
     parent_id = data.get("parent_id")
     if not txt:
         return jsonify({"error": "kosong"}), 400
@@ -265,25 +270,5 @@ def api_bookmark(pid):
         db.commit()
         return jsonify({"bookmarked": False})
 
-
-@bp.route("/api/posts/<int:pid>/repost", methods=["POST"])
-def api_repost(pid):
-    """Quote-style repost: creates a new post referencing the original."""
-    data = request.get_json() or {}
-    extra = (data.get("content") or "").strip()
-    db = get_db()
-    orig = db.execute("SELECT id FROM posts WHERE id=?", (pid,)).fetchone()
-    if not orig:
-        return jsonify({"error": "post not found"}), 404
-    new_id = db.execute(
-        "INSERT INTO posts(username,content,image_b64,image_desc,post_type,repost_of,created_at) "
-        "VALUES(?,?,?,?,?,?,?)",
-        ("me", extra, None, None, "repost", pid, time.time()),
-    ).lastrowid
-    db.commit()
-
-    def bg(pid=new_id, ctx=extra):
-        schedule_responses(pid, ctx or "repost dari post lain", None, poster="me")
-
-    threading.Thread(target=bg, daemon=True).start()
-    return jsonify({"id": new_id}), 201
+# Repost was removed as a product decision (doesn't fit a single-user diary).
+# Old reposts still render read-only via the repost_of resolution in api_get_posts.

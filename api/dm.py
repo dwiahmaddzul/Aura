@@ -17,6 +17,7 @@ from config import DB_PATH
 from db import get_db
 from personas import PERSONAS, PMAP, is_online
 from utils import time_ago
+from security import cap, rate_limit, MAX_DM
 from llm.generators import dm_reply
 
 bp = Blueprint("dm", __name__)
@@ -88,13 +89,14 @@ def api_dm_thread(persona):
 
 
 @bp.route("/api/dm/<persona>", methods=["POST"])
+@rate_limit(max_calls=20, window=60)
 def api_dm_send(persona):
     """Send a message from 'me' to persona. AI replies in background thread."""
     p = PMAP.get(persona)
     if not p:
         return jsonify({"error": "not found"}), 404
     data = request.get_json() or {}
-    txt = data.get("content", "").strip()
+    txt = cap(data.get("content", ""), MAX_DM)
     if not txt:
         return jsonify({"error": "kosong"}), 400
     db = get_db()

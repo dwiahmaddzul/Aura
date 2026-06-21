@@ -70,13 +70,3 @@ async function loadThrowback() {
   } catch {}
 }
 window.loadThrowback = loadThrowback;
-
-async function loadStreak() {
-  try {
-    const r = await fetch('/api/me/streak');
-    const d = await r.json();
-    const el = document.getElementById('streakCount');
-    if (el) el.textContent = d.current;
-  } catch {}
-}
-window.loadStreak = loadStreak;

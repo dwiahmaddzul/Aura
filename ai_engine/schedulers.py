@@ -117,9 +117,43 @@ def ai_story_scheduler():
         time.sleep(wait)
 
 
+def cleanup_worker():
+    """Periodic DB hygiene. Non-highlight stories carry big base64 images and
+    only live 24h in the rail — past 48h they're invisible, so drop them.
+    Highlights are permanent and never touched. Also trims the AI timeline so
+    the table can't grow forever; the user's own posts are always kept."""
+    time.sleep(300)
+    while True:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cutoff = time.time() - 48 * 3600
+            n = conn.execute(
+                "DELETE FROM stories WHERE is_highlight=0 AND created_at<?",
+                (cutoff,),
+            ).rowcount
+            # Keep the 300 most recent AI posts; never delete the user's diary
+            conn.execute(
+                "DELETE FROM posts WHERE username!='me' AND id NOT IN "
+                "(SELECT id FROM posts WHERE username!='me' "
+                " ORDER BY created_at DESC LIMIT 300)"
+            )
+            # Drop orphaned rows left by deleted posts
+            conn.execute("DELETE FROM comments WHERE post_id NOT IN (SELECT id FROM posts)")
+            conn.execute("DELETE FROM likes WHERE post_id NOT IN (SELECT id FROM posts)")
+            conn.commit()
+            conn.close()
+            if n:
+                print(f"[Cleanup] removed {n} expired stories")
+        except Exception as e:
+            print(f"[Cleanup] error: {e}")
+        time.sleep(3600)  # hourly
+
+
 def start_background_workers():
-    """Spawn both daemon threads. Call once from app entrypoint."""
+    """Spawn daemon threads. Call once from app entrypoint."""
     threading.Thread(target=ai_post_scheduler, daemon=True).start()
     threading.Thread(target=ai_story_scheduler, daemon=True).start()
+    threading.Thread(target=cleanup_worker, daemon=True).start()
     print("  [BG] AI post scheduler started (8-15min interval)")
     print("  [BG] AI story scheduler started (15-25min interval)")
+    print("  [BG] DB cleanup worker started (hourly)")

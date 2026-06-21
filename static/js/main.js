@@ -59,7 +59,6 @@ window.MOOD_EMOJI = {
   loadStories();
   loadDailyBanner();
   loadThrowback();
-  loadStreak();
   maybeShowOnboarding();
   setInterval(loadFeed, 15000);
   setInterval(loadStories, 30000);
@@ -148,9 +147,6 @@ function switchPage(n) {
     document.getElementById('dmThread').style.display = 'none';
     document.getElementById('dmList').style.display = '';
     if (typeof loadDmList === 'function') loadDmList();
-  }
-  if (n === 'profile') {
-    if (typeof loadStreak === 'function') loadStreak();
   }
   if (n === 'notif') {
     if (typeof renderNotifs === 'function') renderNotifs();

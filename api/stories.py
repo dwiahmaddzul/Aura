@@ -10,6 +10,7 @@ from flask import Blueprint, Response, jsonify, request
 from db import get_db
 from personas import PMAP
 from utils import time_ago
+from security import cap, image_too_big, rate_limit, MAX_CAPTION
 
 bp = Blueprint("stories", __name__)
 
@@ -73,13 +74,16 @@ def api_story_image(sid):
 
 
 @bp.route("/api/stories", methods=["POST"])
+@rate_limit(max_calls=10, window=60)
 def api_story_create():
     """User uploads their own story. Body: {image_b64, caption}."""
     data = request.get_json() or {}
     img = data.get("image_b64")
-    caption = (data.get("caption") or "").strip()[:200]
+    caption = cap(data.get("caption", ""), MAX_CAPTION)
     if not img:
         return jsonify({"error": "foto wajib"}), 400
+    if image_too_big(img):
+        return jsonify({"error": "Gambar terlalu besar (maks ~2MB)"}), 413
     db = get_db()
     sid = db.execute(
         "INSERT INTO stories(username,image_b64,caption,is_highlight,created_at) "

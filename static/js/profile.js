@@ -56,17 +56,16 @@ async function openProfile(username) {
         <div class="prt">
           <div class="prpic" style="background:${d.color};${avatarRing}" onclick="${avatarClick}">${d.avatar}</div>
           <div class="prs">
-            <div class="st"><span class="stn">${d.post_count}</span><span class="stl2">Posts</span></div>
-            <div class="st"><span class="stn">${Math.floor(Math.random() * 9 + 1)}.${Math.floor(Math.random() * 9)}K</span><span class="stl2">Followers</span></div>
-            <div class="st"><span class="stn">${d.comment_count}</span><span class="stl2">Comments</span></div>
+            <div class="st"><span class="stn">${d.post_count}</span><span class="stl2">Postingan</span></div>
+            <div class="st"><span class="stn">${(d.highlights || []).length}</span><span class="stl2">Sorotan</span></div>
+            <div class="st"><span class="stn">${(d.stories || []).length}</span><span class="stl2">Cerita</span></div>
           </div>
         </div>
         <div class="prn">${d.display}</div>
         <div class="prh2">@${d.username}</div>
         <div class="prb">${esc(d.bio)}</div>
         <div class="pra">
-          <button class="prbt fb" onclick="tgFollow(this)" style="flex:1;text-align:center">Follow</button>
-          <button class="prbt" onclick="closeProfOv();switchPage('dm');setTimeout(()=>openDmThread('${d.username}'),200)">Message</button>
+          <button class="prbt" style="flex:1" onclick="closeProfOv();switchPage('dm');setTimeout(()=>openDmThread('${d.username}'),200)">Kirim pesan</button>
         </div>
       </div>
       ${highlightHtml}
