@@ -14,6 +14,13 @@ async function loadFeed() {
     renderFeed(window.aura.allPosts);
     const myPosts = window.aura.allPosts.filter(p => p.username === 'me');
     document.getElementById('sp').textContent = myPosts.length;
+    const now = new Date();
+    const tm = myPosts.filter(p => {
+      const d = new Date((p.created_at || 0) * 1000);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).length;
+    const tmEl = document.getElementById('thisMonth');
+    if (tmEl) tmEl.textContent = tm;
     renderPG(window.aura.allPosts);
   } catch {}
 }
@@ -33,7 +40,8 @@ function pCard(p, i) {
   const lk = p.is_liked || window.aura.liked.has(p.id);
   const bm = p.bookmarked || window.aura.bookmarked.has(p.id);
   const isAI = p.username !== 'me';
-  let m = '';
+  const isGrat = p.post_type === 'gratitude';
+  let m = isGrat ? '<div class="grat-tag">🙏 Catatan syukur</div>' : '';
   // Repost wrapper — show original embedded
   if (p.original) {
     const o = p.original;
@@ -52,16 +60,8 @@ function pCard(p, i) {
     m += `<img src="/api/posts/${p.id}/image" class="pimg" loading="lazy" alt="">`;
   }
   if (p.content) m += `<div class="pbody ${p.has_image ? 'cap' : ''}">${esc(p.content)}</div>`;
-  const cms = p.comments.map(c => `
-    <div class="ci">
-      <div class="cav" style="background:${c.color}">${c.avatar}</div>
-      <div class="cb">
-        <span class="cu" onclick="${c.is_ai ? `openProfile('${c.username}')` : 'void(0)'}">${esc(c.display)}</span>
-        <span class="ct">${esc(c.content)}</span>
-        <div class="ctm">${c.time_ago}</div>
-      </div>
-    </div>`).join('');
-  return `<div class="pc" style="animation-delay:${i * .04}s" id="pc${p.id}">
+  const cms = buildComments(p);
+  return `<div class="pc${isGrat ? ' grat' : ''}" style="animation-delay:${i * .04}s" id="pc${p.id}">
     <div class="ph">
       <div class="av" style="background:${p.color}">${p.avatar}</div>
       <div class="pm">
@@ -80,9 +80,6 @@ function pCard(p, i) {
         <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span>${p.comment_count}</span>
       </button>
-      <button class="ab" onclick="openRepost(${p.id})">
-        <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-      </button>
       <div class="sp"></div>
       <button class="ab ${bm ? 'saved' : ''}" onclick="doBookmark(${p.id},this)">
         <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
@@ -93,12 +90,65 @@ function pCard(p, i) {
         <div id="cml${p.id}">${cms}</div>
         <div class="cir">
           <input class="cinp" id="ci${p.id}" placeholder="Tulis komentar..." onkeydown="if(event.key==='Enter')doCm(${p.id})">
-          <button class="csend" onclick="doCm(${p.id})">➤</button>
+          <button class="csend" onclick="doCm(${p.id})" aria-label="Kirim"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
         </div>
       </div>
     </div>
   </div>`;
 }
+
+// ── Threaded comments (1 level) ──
+function cmtRow(c, postId, root, isReply) {
+  return `<div class="ci${isReply ? ' ci-reply' : ''}">
+    <div class="cav" style="background:${c.color}">${c.avatar}</div>
+    <div class="cb">
+      <span class="cu" onclick="${c.is_ai ? `openProfile('${c.username}')` : 'void(0)'}">${esc(c.display)}</span>
+      <span class="ct">${esc(c.content)}</span>
+      <div class="ctm">${c.time_ago} · <button class="creply" onclick="replyTo(${postId},${root},this)">Balas</button></div>
+    </div>
+  </div>`;
+}
+
+function buildComments(p) {
+  const tops = p.comments.filter(c => !c.parent_id);
+  const byParent = {};
+  p.comments.filter(c => c.parent_id).forEach(c => {
+    (byParent[c.parent_id] = byParent[c.parent_id] || []).push(c);
+  });
+  return tops.map(t => {
+    const reps = (byParent[t.id] || []).map(r => cmtRow(r, p.id, t.id, true)).join('');
+    return `<div class="cthread" id="cth${p.id}_${t.id}">${cmtRow(t, p.id, t.id, false)}${reps}</div>`;
+  }).join('');
+}
+window.buildComments = buildComments;
+
+function replyTo(postId, root, btn) {
+  const inp = document.getElementById('ci' + postId);
+  if (!inp) return;
+  const name = btn.closest('.ci').querySelector('.cu').textContent;
+  inp.dataset.parent = root;
+  inp.placeholder = 'Balas ' + name + '…';
+  inp.focus();
+  const bar = inp.closest('.cir');
+  if (bar && !document.getElementById('rc' + postId)) {
+    const chip = document.createElement('button');
+    chip.id = 'rc' + postId;
+    chip.className = 'reply-cancel';
+    chip.type = 'button';
+    chip.textContent = '✕';
+    chip.title = 'Batal balas';
+    chip.onclick = () => cancelReply(postId);
+    bar.insertBefore(chip, inp);
+  }
+}
+window.replyTo = replyTo;
+
+function cancelReply(postId) {
+  const inp = document.getElementById('ci' + postId);
+  if (inp) { delete inp.dataset.parent; inp.placeholder = 'Tulis komentar...'; }
+  document.getElementById('rc' + postId)?.remove();
+}
+window.cancelReply = cancelReply;
 
 function tgCm(id) {
   const el = document.getElementById('cm' + id);
@@ -129,69 +179,31 @@ async function doBookmark(id, btn) {
 }
 window.doBookmark = doBookmark;
 
-function openRepost(id) {
-  const p = window.aura.allPosts.find(x => x.id === id);
-  if (!p) return;
-  window.aura.repostOf = id;
-  document.getElementById('rpExtra').value = '';
-  // Render original preview
-  const origImg = p.has_image ? `<img src="/api/posts/${p.id}/image" class="rp-img">` : '';
-  document.getElementById('rpOrig').innerHTML = `
-    <div class="rp-orig-h">
-      <div class="av" style="background:${p.color}">${p.avatar}</div>
-      <div style="font-size:12px;font-weight:600">${esc(p.display)}</div>
-    </div>
-    <div class="rp-orig-c">${esc(p.content || '')}</div>
-    ${origImg}
-  `;
-  document.getElementById('repostModal').classList.add('open');
-}
-window.openRepost = openRepost;
-
-function closeRepost(e) {
-  if (!e || e.target === document.getElementById('repostModal')) {
-    document.getElementById('repostModal').classList.remove('open');
-    window.aura.repostOf = null;
-  }
-}
-window.closeRepost = closeRepost;
-
-async function submitRepost() {
-  const id = window.aura.repostOf;
-  if (!id) return;
-  const extra = document.getElementById('rpExtra').value.trim();
-  try {
-    const r = await fetch(`/api/posts/${id}/repost`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: extra }),
-    });
-    if (r.ok) {
-      closeRepost();
-      showToast('🔁 Reposted!');
-      loadFeed();
-    } else {
-      showToast('❌ Gagal');
-    }
-  } catch {
-    showToast('❌ Network error');
-  }
-}
-window.submitRepost = submitRepost;
+// Repost was removed (doesn't fit a single-user diary). Existing reposts from
+// the backend still render read-only via the .rp-w block in pCard().
 
 async function doCm(id) {
   const inp = document.getElementById('ci' + id);
   const txt = inp.value.trim();
   if (!txt) return;
+  const parent = inp.dataset.parent ? parseInt(inp.dataset.parent) : null;
   inp.value = '';
-  const list = document.getElementById('cml' + id);
-  list.insertAdjacentHTML('beforeend', `
-    <div class="ci"><div class="cav" style="background:linear-gradient(135deg,var(--acc),var(--a2))">K</div>
-    <div class="cb"><span class="cu">Kamu 👤</span><span class="ct">${esc(txt)}</span><div class="ctm">Baru saja</div></div></div>`);
+  const meAv = (window.aura.myProfile && window.aura.myProfile.avatar) || 'K';
+  const meName = (window.aura.myProfile && window.aura.myProfile.display_name) || 'Kamu';
+  const row = `<div class="ci${parent ? ' ci-reply' : ''}">
+    <div class="cav av-me">${esc(meAv)}</div>
+    <div class="cb"><span class="cu">${esc(meName)}</span><span class="ct">${esc(txt)}</span><div class="ctm">Baru saja</div></div></div>`;
+  if (parent) {
+    const th = document.getElementById('cth' + id + '_' + parent);
+    (th || document.getElementById('cml' + id)).insertAdjacentHTML('beforeend', row);
+  } else {
+    document.getElementById('cml' + id).insertAdjacentHTML('beforeend', `<div class="cthread">${row}</div>`);
+  }
+  cancelReply(id);
   await fetch(`/api/posts/${id}/comment`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: txt }),
+    body: JSON.stringify({ text: txt, parent_id: parent }),
   });
 }
 window.doCm = doCm;
@@ -228,7 +240,8 @@ function switchPT(el, t) {
   } else if (t === 'liked') {
     c.innerHTML = '<div class="sk"><div class="sk-bar"></div><div class="sk-bar"></div></div>';
     fetch('/api/me/liked').then(r => r.json()).then(posts => {
-      document.getElementById('likedCount').textContent = posts.length;
+      const lcEl = document.getElementById('likedCount');
+      if (lcEl) lcEl.textContent = posts.length;
       if (!posts.length) {
         c.innerHTML = '<div class="empty"><span>❤️</span>Belum ada yang lo sukai</div>';
         return;
@@ -302,22 +315,7 @@ function switchPT(el, t) {
 }
 window.switchPT = switchPT;
 
-// ── PERSONAS LIST + SEARCH + NOTIFICATIONS ──
-function renderPL() {
-  document.getElementById('pl').innerHTML = window.aura.personas.map(p => `
-    <div class="sr-i" onclick="openProfile('${p.username}')">
-      <div class="av-wrap">
-        <div class="av sav2" style="background:${p.color}">${p.avatar}</div>
-      </div>
-      <div class="sr-i-m">
-        <div class="sr-i-n">${p.display}</div>
-        <div class="sr-i-p">${esc(p.bio || '').split('\n')[0]}</div>
-      </div>
-      <button class="fb" onclick="event.stopPropagation();tgFollow(this)">Follow</button>
-    </div>`).join('');
-}
-window.renderPL = renderPL;
-
+// ── ACTIVITY (notifications) ──
 async function renderNotifs() {
   const el = document.getElementById('nl');
   if (!el) return;
@@ -360,65 +358,54 @@ async function renderNotifs() {
 }
 window.renderNotifs = renderNotifs;
 
+// ── JURNAL (archive of your own entries) ──
+const ID_MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+function arcEntryHTML(p) {
+  const d = new Date((p.created_at || 0) * 1000);
+  const mon = ID_MONTHS[d.getMonth()].slice(0, 3);
+  const moodEm = p.mood && window.MOOD_EMOJI[p.mood] ? window.MOOD_EMOJI[p.mood] : '';
+  const preview = p.content ? esc(p.content) : (p.has_image ? 'Foto' : '—');
+  const go = `switchPage('home');setTimeout(()=>document.getElementById('pc${p.id}')?.scrollIntoView({behavior:'smooth',block:'center'}),250)`;
+  return `<div class="arc-i" onclick="${go}">
+    <div class="arc-d"><span>${d.getDate()} ${mon}</span>${moodEm ? `<span>· ${moodEm}</span>` : ''}${p.post_type === 'gratitude' ? '<span>· 🙏</span>' : ''}${p.has_image && p.content ? '<span>· 📷</span>' : ''}</div>
+    <div class="arc-t">${preview}</div>
+  </div>`;
+}
+
+function renderArsip(filter) {
+  const out = document.getElementById('searchResults');
+  if (!out) return;
+  let mine = (window.aura.allPosts || []).filter(p => p.username === 'me');
+  if (filter) {
+    const f = filter.toLowerCase();
+    mine = mine.filter(p => (p.content || '').toLowerCase().includes(f));
+  }
+  mine.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  if (!mine.length) {
+    out.innerHTML = filter
+      ? '<div class="empty"><span>🔎</span>Nggak ada entri yang cocok</div>'
+      : '<div class="empty"><span>🪶</span>Jurnalmu masih kosong.<div class="empty-tip">Tiap yang kamu tulis bakal ngumpul di sini — biar gampang dibaca lagi nanti.</div></div>';
+    return;
+  }
+  let html = '', lastKey = '';
+  mine.forEach(p => {
+    const d = new Date((p.created_at || 0) * 1000);
+    const key = ID_MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+    if (key !== lastKey) { html += `<div class="arc-mon">${key}</div>`; lastKey = key; }
+    html += arcEntryHTML(p);
+  });
+  out.innerHTML = html;
+}
+window.renderArsip = renderArsip;
+
 let searchTimer = null;
 function doSearch(v) {
   clearTimeout(searchTimer);
   const q = v.trim();
-  const out = document.getElementById('searchResults');
-  if (!q) {
-    out.innerHTML = '<div class="sr-h">Teman</div><div class="sl" id="pl"></div>';
-    renderPL();
-    return;
-  }
-  if (q.length < 2) return;
-  // Debounce
-  searchTimer = setTimeout(async () => {
-    out.innerHTML = '<div class="empty"><span>🔍</span>Mencari…</div>';
-    try {
-      const r = await fetch('/api/search?q=' + encodeURIComponent(q));
-      const d = await r.json();
-      let html = '';
-      if (d.personas.length) {
-        html += '<div class="sr-h">Teman</div>';
-        html += d.personas.map(p => `
-          <div class="sr-i" onclick="openProfile('${p.username}')">
-            <div class="av-wrap"><div class="av sav2" style="background:${p.color}">${p.avatar}</div></div>
-            <div class="sr-i-m">
-              <div class="sr-i-n">${p.display}</div>
-              <div class="sr-i-p">${esc((p.bio || '').split('\n')[0])}</div>
-            </div>
-          </div>`).join('');
-      }
-      if (d.posts.length) {
-        html += '<div class="sr-h">Posts</div>';
-        html += d.posts.map(p => `
-          <div class="sr-i" onclick="switchPage('home');setTimeout(()=>document.getElementById('pc${p.id}')?.scrollIntoView({behavior:'smooth'}),200)">
-            <div class="av-wrap"><div class="av sav2" style="background:${p.color}">${p.avatar}</div></div>
-            <div class="sr-i-m">
-              <div class="sr-i-n">${p.display}${p.mood && window.MOOD_EMOJI[p.mood] ? ' · ' + window.MOOD_EMOJI[p.mood] : ''}</div>
-              <div class="sr-i-p">${esc(p.content || (p.has_image ? '📸 foto' : ''))}</div>
-            </div>
-            <div class="nf-i-t">${p.time_ago}</div>
-          </div>`).join('');
-      }
-      if (d.dms.length) {
-        html += '<div class="sr-h">DMs</div>';
-        html += d.dms.map(m => `
-          <div class="sr-i" onclick="switchPage('dm');setTimeout(()=>openDmThread('${m.persona}'),200)">
-            <div class="av-wrap"><div class="av sav2" style="background:${m.color}">${m.avatar}</div></div>
-            <div class="sr-i-m">
-              <div class="sr-i-n">${m.display}</div>
-              <div class="sr-i-p">${m.sender === 'me' ? 'Kamu: ' : ''}${esc(m.content)}</div>
-            </div>
-            <div class="nf-i-t">${m.time_ago}</div>
-          </div>`).join('');
-      }
-      if (!html) html = '<div class="empty"><span>🔍</span>Gak ketemu apa-apa</div>';
-      out.innerHTML = html;
-    } catch {
-      out.innerHTML = '<div class="empty"><span>⚠️</span>Gagal cari</div>';
-    }
-  }, 300);
+  if (!q) { renderArsip(); return; }
+  searchTimer = setTimeout(() => renderArsip(q), 200);
 }
 window.doSearch = doSearch;
 

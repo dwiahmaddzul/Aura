@@ -44,6 +44,11 @@ def init_db():
         c.execute("ALTER TABLE posts ADD COLUMN repost_of INTEGER")
     except sqlite3.OperationalError:
         pass
+    # Migration: add parent_id to comments (threaded replies — 1 level)
+    try:
+        c.execute("ALTER TABLE comments ADD COLUMN parent_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
     # Seed default profile if empty
     cur = c.execute("SELECT COUNT(*) FROM me_profile").fetchone()
     if cur[0] == 0:

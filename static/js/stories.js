@@ -17,11 +17,25 @@ window.loadStories = loadStories;
 
 function renderStories() {
   const w = document.getElementById('sw');
-  let h = `<div class="si" onclick="openMyStoryUpload()">
-    <div class="sr seen"><div class="sav" style="background:var(--s2);font-size:22px">+</div></div>
-    <div class="slbl">Kamu</div></div>`;
-  const withStory = new Set(window.aura.storyData.map(s => s.username));
-  window.aura.personas.forEach((p) => {
+  const aura = window.aura;
+  const meStory = (aura.storyData || []).find(s => s.username === 'me');
+  const meAv = (aura.myProfile && aura.myProfile.avatar) || 'K';
+  let h;
+  if (meStory && meStory.slides && meStory.slides.length) {
+    // Has an active story -> tap to view, + badge to add another
+    h = `<div class="si" onclick="openSVUser('me')">
+      <div class="sr has-story">
+        <div class="sav" style="background:linear-gradient(140deg,var(--acc),#b98a52)">${esc(meAv)}</div>
+        <button class="si-add" onclick="event.stopPropagation();openMyStoryUpload()" aria-label="Tambah story">+</button>
+      </div>
+      <div class="slbl">Kamu</div></div>`;
+  } else {
+    h = `<div class="si" onclick="openMyStoryUpload()">
+      <div class="sr seen"><div class="sav" style="background:var(--s2);font-size:22px">+</div></div>
+      <div class="slbl">Kamu</div></div>`;
+  }
+  const withStory = new Set((aura.storyData || []).map(s => s.username));
+  aura.personas.forEach((p) => {
     const has = withStory.has(p.username);
     h += `<div class="si" onclick="openSVUser('${p.username}')">
       <div class="sr ${has ? 'has-story' : 'seen'}"><div class="sav" style="background:${p.color}">${p.avatar}</div></div>

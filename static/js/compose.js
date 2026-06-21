@@ -74,6 +74,7 @@ function closeC() {
   document.getElementById('modal').classList.remove('open');
   const ep = document.getElementById('emojiPanel');
   if (ep) ep.style.display = 'none';
+  if (typeof setComposeMode === 'function') setComposeMode('note');
 }
 window.closeC = closeC;
 
@@ -128,6 +129,9 @@ async function subPost() {
     showToast('⚠️ Tulis atau upload foto!');
     return;
   }
+  const mode = window.aura.composeMode || 'note';
+  const isGrat = mode === 'gratitude';
+  const allowAi = isGrat ? !!document.getElementById('gratAllowAi')?.checked : true;
   const btn = document.getElementById('pbtn');
   btn.disabled = true;
   btn.textContent = 'Posting...';
@@ -139,16 +143,18 @@ async function subPost() {
         content: txt,
         image_b64: window.aura.imgB64,
         mood: window.aura.selectedMood,
+        post_type: isGrat ? 'gratitude' : undefined,
+        allow_ai: allowAi,
       }),
     });
     if (r.ok) {
       document.getElementById('ct').value = '';
-      document.getElementById('ct').placeholder = 'Apa yang lagi kamu pikirin?…';
       cntCh();
       rmImg();
       resetMood();
+      setComposeMode('note');
       closeC();
-      showToast('🚀 Posted!');
+      showToast(isGrat ? '🙏 Tersimpan' : '🚀 Posted!');
       loadFeed();
       // Refresh daily banner — should hide now
       if (typeof loadDailyBanner === 'function') loadDailyBanner();
@@ -160,9 +166,25 @@ async function subPost() {
     showToast('❌ Network error');
   }
   btn.disabled = false;
-  btn.textContent = 'Post ✦';
+  btn.textContent = 'Post';
 }
 window.subPost = subPost;
+
+// ── COMPOSE MODE: Catatan vs Syukur ──
+function setComposeMode(mode) {
+  window.aura.composeMode = mode;
+  const note = document.getElementById('cmNote');
+  const grat = document.getElementById('cmGrat');
+  const opts = document.getElementById('gratOpts');
+  if (note) note.classList.toggle('active', mode === 'note');
+  if (grat) grat.classList.toggle('active', mode === 'gratitude');
+  if (opts) opts.style.display = mode === 'gratitude' ? 'block' : 'none';
+  const ta = document.getElementById('ct');
+  if (ta) ta.placeholder = mode === 'gratitude'
+    ? 'Apa yang kamu syukuri hari ini?'
+    : 'Apa yang lagi kamu pikirin?…';
+}
+window.setComposeMode = setComposeMode;
 
 // ── EDIT PROFILE ──
 function openEditProfile() {
@@ -276,6 +298,6 @@ async function submitStory() {
     showToast('❌ Network error');
   }
   btn.disabled = false;
-  btn.textContent = 'Post Story ✦';
+  btn.textContent = 'Post Story';
 }
 window.submitStory = submitStory;

@@ -32,7 +32,7 @@ async function openProfile(username) {
     // HIGHLIGHTS section (Sorotan) — permanent, below follow buttons
     let highlightHtml = '';
     if (d.highlights && d.highlights.length) {
-      highlightHtml = `<div style="padding:14px 18px 10px"><div style="font-family:'Clash Display',sans-serif;font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">✨ Sorotan</div>
+      highlightHtml = `<div style="padding:14px 18px 10px"><div style="font-family:'Fraunces',sans-serif;font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">✨ Sorotan</div>
         <div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:6px">
         ${d.highlights.map(s => `<div style="flex-shrink:0;text-align:center">
           <div style="width:64px;height:64px;border-radius:50%;overflow:hidden;border:2px solid var(--acc);cursor:pointer"

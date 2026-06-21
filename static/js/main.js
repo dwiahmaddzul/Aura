@@ -54,7 +54,7 @@ window.MOOD_EMOJI = {
   } catch {}
   applyMyProfile();
   applyTimeAwarePlaceholder();
-  renderPL();
+  renderArsip();
   loadFeed();
   loadStories();
   loadDailyBanner();
@@ -76,7 +76,7 @@ function showApiKeyWarning() {
     <div style="margin:13px 18px 0;padding:13px 14px;border-radius:12px;
       background:rgba(255,79,109,0.08);border:1px solid rgba(255,79,109,0.3);
       font-size:12.5px;line-height:1.5;color:#ffb3bf">
-      <b style="font-family:'Clash Display',sans-serif;display:block;margin-bottom:4px">⚠️ API Key belum di-set</b>
+      <b style="font-family:'Fraunces',sans-serif;display:block;margin-bottom:4px">⚠️ API Key belum di-set</b>
       Temen-temenmu lagi gak bisa bales — buat file <code style="background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:4px;font-size:11.5px">.env</code> di folder app, isi <code style="background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:4px;font-size:11.5px">SILICONFLOW_API_KEY=sk-…</code>, terus restart.
     </div>`;
   const sw = document.getElementById('sw');
@@ -156,7 +156,9 @@ function switchPage(n) {
     if (typeof renderNotifs === 'function') renderNotifs();
   }
   if (n === 'search') {
-    document.getElementById('searchInput')?.focus();
+    const si = document.getElementById('searchInput');
+    if (si) si.value = '';
+    if (typeof renderArsip === 'function') renderArsip();
   }
   // Scroll to top
   window.scrollTo({ top: 0, behavior: 'smooth' });

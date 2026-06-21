@@ -121,25 +121,24 @@ def api_create():
     content = data.get("content", "").strip()
     img = data.get("image_b64")
     mood = data.get("mood")  # optional: senang/sedih/capek/excited/bingung/tenang
+    ptype = data.get("post_type")
+    allow_ai = data.get("allow_ai", True)
+    if ptype not in ("text", "image", "gratitude"):
+        ptype = None
     if not content and not img:
         return jsonify({"error": "kosong"}), 400
+    final_type = ptype or ("image" if img else "text")
     db = get_db()
     pid = db.execute(
         "INSERT INTO posts(username,content,image_b64,image_desc,post_type,mood,created_at) "
         "VALUES(?,?,?,?,?,?,?)",
-        (
-            "me",
-            content,
-            img,
-            None,
-            "image" if img else "text",
-            mood,
-            time.time(),
-        ),
+        ("me", content, img, None, final_type, mood, time.time()),
     ).lastrowid
     db.commit()
 
-    def bg(pid=pid, i=img, cap=content, m=mood):
+    skip_ai = final_type == "gratitude" and not allow_ai
+
+    def bg(pid=pid, i=img, cap=content, m=mood, skip=skip_ai, grat=(final_type == "gratitude")):
         desc = None
         if i:
             desc = describe_image(i)
@@ -150,9 +149,10 @@ def api_create():
                 )
                 conn.commit()
                 conn.close()
-        # Inject mood marker so AI personas can react with empathy
-        mood_prefix = f"[mood: {m}] " if m else ""
-        schedule_responses(pid, mood_prefix + (cap or desc or "foto"), i, poster="me")
+        if skip:
+            return  # gratitude entry with AI comments turned off
+        prefix = (f"[mood: {m}] " if m else "") + ("[catatan syukur] " if grat else "")
+        schedule_responses(pid, prefix + (cap or desc or "foto"), i, poster="me")
 
     threading.Thread(target=bg, daemon=True).start()
     return jsonify({"id": pid}), 201
@@ -185,36 +185,63 @@ def api_like(pid):
 def api_comment(pid):
     data = request.get_json() or {}
     txt = data.get("text", "").strip()
+    parent_id = data.get("parent_id")
     if not txt:
         return jsonify({"error": "kosong"}), 400
     db = get_db()
-    db.execute(
-        "INSERT INTO comments(post_id,username,content,is_ai,created_at) "
-        "VALUES(?,?,?,0,?)",
-        (pid, "me", txt, time.time()),
-    )
+    # Normalize to thread root (1-level threading). target_author = persona who
+    # owns the thread root, so an in-thread reply comes from the right friend.
+    root = None
+    target_author = None
+    if parent_id:
+        prow = db.execute(
+            "SELECT id, parent_id FROM comments WHERE id=?", (parent_id,)
+        ).fetchone()
+        if prow:
+            root = prow["parent_id"] or prow["id"]
+            rootrow = db.execute(
+                "SELECT username, is_ai FROM comments WHERE id=?", (root,)
+            ).fetchone()
+            if rootrow and rootrow["is_ai"]:
+                target_author = rootrow["username"]
+    my_id = db.execute(
+        "INSERT INTO comments(post_id,username,content,is_ai,parent_id,created_at) "
+        "VALUES(?,?,?,0,?,?)",
+        (pid, "me", txt, root, time.time()),
+    ).lastrowid
     db.commit()
-    # 40% chance one AI replies to user's comment
-    if random.random() < 0.40:
-        p = random.choice(PERSONAS)
-        d = random.randint(15, 55)
 
-        def reply(p=p, d=d, pid=pid, t=txt):
+    # Decide if an AI replies, and who.
+    p = None
+    do_reply = False
+    if target_author:
+        p = PMAP.get(target_author)
+        do_reply = p is not None and random.random() < 0.60  # they were addressed
+    elif not parent_id and random.random() < 0.40:
+        p = random.choice(PERSONAS)
+        do_reply = True
+
+    if do_reply and p:
+        d = random.randint(15, 55)
+        # In-thread reply -> same root; reply to a fresh top-level -> nest under it
+        reply_root = root if target_author else my_id
+
+        def reply(p=p, d=d, pid=pid, t=txt, rr=reply_root):
             time.sleep(d)
-            row = sqlite3.connect(DB_PATH).execute(
+            conn = sqlite3.connect(DB_PATH)
+            row = conn.execute(
                 "SELECT content FROM posts WHERE id=?", (pid,)
             ).fetchone()
-            ctx = f"[post: {row[0] or 'foto'}] ada komentar: \"{t}\""
+            ctx = f'[post: {row[0] or "foto"}] ada yang nanggepin: "{t}"'
             r = comment_text(ctx, p)
             if r:
-                conn = sqlite3.connect(DB_PATH)
                 conn.execute(
-                    "INSERT INTO comments(post_id,username,content,is_ai,created_at) "
-                    "VALUES(?,?,?,1,?)",
-                    (pid, p["username"], r, time.time()),
+                    "INSERT INTO comments(post_id,username,content,is_ai,parent_id,created_at) "
+                    "VALUES(?,?,?,1,?,?)",
+                    (pid, p["username"], r, rr, time.time()),
                 )
                 conn.commit()
-                conn.close()
+            conn.close()
 
         threading.Thread(target=reply, daemon=True).start()
     return jsonify({"ok": True}), 201

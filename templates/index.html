@@ -8,18 +8,45 @@
 <meta name="theme-color" content="#0c0a1c">
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/favicon.svg') }}">
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon.svg') }}">
-<link href="https://fonts.googleapis.com/css2?family=Clash+Display:wght@500;600;700&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+<script>if(localStorage.getItem('auraGateOk')==='1')document.documentElement.classList.add('gate-ok');</script>
 </head>
 <body>
+<!-- DEMO GATE (soft gate for the public demo — not real auth) -->
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <div class="gate-logo"><img src="{{ url_for('static', filename='icons/icon-mark.svg') }}" alt="" width="34" height="34"> Aura</div>
+    <div class="gate-tag">Ruang curhat pribadimu — diary yang ngalir kayak medsos.</div>
+    <input class="gate-inp" id="gateCode" type="password" placeholder="Masukin kode rahasia kamu…" onkeydown="if(event.key==='Enter')unlockGate()" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button class="gate-btn" onclick="unlockGate()">Masuk</button>
+    <div class="gate-err" id="gateErr"></div>
+    <div class="gate-demo">Cuma mau lihat-lihat? Ini demo — kodenya: <button class="gate-demo-code" onclick="fillGate('rahasiakusaja')">rahasiakusaja</button></div>
+  </div>
+</div>
+<script>
+function unlockGate(){
+  var v=(document.getElementById('gateCode').value||'').trim();
+  if(v==='rahasiakusaja'){
+    try{localStorage.setItem('auraGateOk','1');}catch(e){}
+    document.documentElement.classList.add('gate-ok');
+  }else{
+    var card=document.querySelector('#gate .gate-card');
+    document.getElementById('gateErr').textContent='Kode-nya belum pas. Coba lagi ya.';
+    card.classList.remove('shake');void card.offsetWidth;card.classList.add('shake');
+  }
+}
+function fillGate(c){var i=document.getElementById('gateCode');i.value=c;i.focus();}
+</script>
+
 <div class="topbar">
   <div class="logo">
     <img src="{{ url_for('static', filename='icons/icon-mark.svg') }}" alt="" width="28" height="28" style="vertical-align:-7px;margin-right:4px">
     Aura
   </div>
   <div class="topbar-r">
-    <button class="ib" onclick="switchPage('notif')" style="position:relative">
-      <span class="npip"></span>
+    <button class="ib" onclick="switchPage('notif')" aria-label="Aktivitas">
       <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
     </button>
     <button class="ib" onclick="switchPage('dm')">
@@ -38,28 +65,28 @@
     <div class="av av-me" id="composeAvatar">K</div>
     <div class="cph">Apa yang lagi kamu pikirin?</div>
     <div class="cacts">
-      <button onclick="event.stopPropagation();document.getElementById('fi').click()">📷</button>
+      <button aria-label="Tambah foto" onclick="event.stopPropagation();document.getElementById('fi').click()"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
       <input type="file" id="fi" accept="image/*" onchange="handleFile(event)">
-      <button class="pchip" onclick="event.stopPropagation();openC()">Post</button>
+      <button class="pchip" onclick="event.stopPropagation();openC()">Tulis</button>
     </div>
   </div>
   <div id="feed"><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div></div>
 </div>
 
-<!-- SEARCH -->
+<!-- JURNAL (archive of your own entries) -->
 <div class="page" id="page-search">
+  <div class="page-title">Jurnal</div>
+  <div class="page-sub">Semua yang pernah kamu tulis</div>
   <div class="sb-wrap">
-    <input class="sb-inp" id="searchInput" placeholder="🔍 Cari post, persona, atau DM…" oninput="doSearch(this.value)">
+    <input class="sb-inp" id="searchInput" placeholder="Cari di jurnal kamu…" oninput="doSearch(this.value)">
   </div>
-  <div id="searchResults">
-    <div class="sr-h">Teman</div>
-    <div class="sl" id="pl"></div>
-  </div>
+  <div id="searchResults"></div>
 </div>
 
-<!-- NOTIF -->
+<!-- AKTIVITAS -->
 <div class="page" id="page-notif">
-  <div style="padding:18px 18px 14px;font-family:'Clash Display',sans-serif;font-size:20px;font-weight:700">Notifikasi</div>
+  <div class="page-title">Aktivitas</div>
+  <div class="page-sub">Yang temen-temenmu lakuin di sini</div>
   <div class="sl" id="nl"></div>
 </div>
 
@@ -69,9 +96,8 @@
     <div class="prt">
       <div class="prpic" id="myAvatar" style="background:linear-gradient(135deg,var(--acc),var(--a2));cursor:pointer" onclick="openMyStoryUpload()">K</div>
       <div class="prs">
-        <div class="st"><span class="stn" id="sp">0</span><span class="stl2">Posts</span></div>
-        <div class="st"><span class="stn" id="streakCount">0</span><span class="stl2">Streak 🔥</span></div>
-        <div class="st"><span class="stn" id="likedCount">0</span><span class="stl2">Liked</span></div>
+        <div class="st"><span class="stn" id="sp">0</span><span class="stl2">Entri</span></div>
+        <div class="st"><span class="stn" id="thisMonth">0</span><span class="stl2">Bulan ini</span></div>
       </div>
     </div>
     <div class="prn" id="myDisplayName">Kamu 👤</div>
@@ -105,7 +131,7 @@
 
 <!-- DM PAGE -->
 <div class="page" id="page-dm">
-  <div style="padding:18px 18px 10px;font-family:'Clash Display',sans-serif;font-size:20px;font-weight:700">Pesan</div>
+  <div class="page-title">Pesan</div>
   <div id="dmList" class="dm-l"></div>
   <div id="dmThread" class="dm-thread" style="display:none"></div>
 </div>
@@ -134,6 +160,13 @@
   <div class="sheet">
     <div class="sh"></div>
     <div class="shd"><div class="sht">Buat Postingan</div><button class="xb" onclick="closeC()">×</button></div>
+    <div class="compose-mode">
+      <button class="cm-tab active" id="cmNote" type="button" onclick="setComposeMode('note')">Catatan</button>
+      <button class="cm-tab" id="cmGrat" type="button" onclick="setComposeMode('gratitude')">Syukur 🙏</button>
+    </div>
+    <div class="grat-opts" id="gratOpts" style="display:none">
+      <label class="grat-toggle"><input type="checkbox" id="gratAllowAi" checked> Izinkan teman komentar di catatan ini</label>
+    </div>
     <div class="sca">
       <div class="av av-me" style="width:36px;height:36px;font-size:14px">K</div>
       <textarea id="ct" placeholder="Apa yang lagi kamu pikirin?…" oninput="cntCh()" maxlength="280"></textarea>
@@ -158,11 +191,11 @@
       </div>
     </div>
     <div class="sf">
-      <button class="stl" onclick="document.getElementById('fi2').click()">📷</button>
+      <button class="stl" aria-label="Tambah foto" onclick="document.getElementById('fi2').click()"><svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
       <input type="file" id="fi2" accept="image/*" onchange="handleFile(event)">
-      <button class="stl" onclick="toggleEmoji()">😊</button>
+      <button class="stl" aria-label="Emoji" onclick="toggleEmoji()"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></button>
       <span class="cc" id="cc2">280</span>
-      <button class="pbtn" id="pbtn" onclick="subPost()">Post ✦</button>
+      <button class="pbtn" id="pbtn" onclick="subPost()">Post</button>
     </div>
   </div>
 </div>
@@ -219,21 +252,10 @@
     <div id="suPrev" style="display:none;margin-bottom:10px">
       <img id="suImg" style="width:100%;border-radius:10px;max-height:300px;object-fit:cover">
     </div>
-    <button class="prbt" style="width:100%;margin-bottom:10px" onclick="document.getElementById('suFile').click()">📷 Pilih Foto</button>
+    <button class="prbt" style="width:100%;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="document.getElementById('suFile').click()"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Pilih Foto</button>
     <input type="file" id="suFile" accept="image/*" onchange="handleStoryFile(event)">
     <textarea class="epi-t" id="suCaption" placeholder="Caption (opsional)..." maxlength="200"></textarea>
-    <button class="pbtn" style="width:100%;margin-top:10px" onclick="submitStory()" id="suSubmit" disabled>Post Story ✦</button>
-  </div>
-</div>
-
-<!-- REPOST MODAL -->
-<div class="ov" id="repostModal" onclick="closeRepost(event)">
-  <div class="sheet">
-    <div class="sh"></div>
-    <div class="shd"><div class="sht">Repost</div><button class="xb" onclick="closeRepost()">×</button></div>
-    <textarea class="epi-t" id="rpExtra" placeholder="Tambah pendapat lo (opsional)..." maxlength="280"></textarea>
-    <div class="rp-orig" id="rpOrig"></div>
-    <button class="pbtn" style="width:100%;margin-top:12px" onclick="submitRepost()">Repost ✦</button>
+    <button class="pbtn" style="width:100%;margin-top:10px" onclick="submitStory()" id="suSubmit" disabled>Post Story</button>
   </div>
 </div>
 
