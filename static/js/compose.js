@@ -72,6 +72,7 @@ window.openC = openC;
 
 function closeC() {
   document.getElementById('modal').classList.remove('open');
+  window.aura.answeringPrompt = null;
   const ep = document.getElementById('emojiPanel');
   if (ep) ep.style.display = 'none';
   if (typeof setComposeMode === 'function') setComposeMode('note');
@@ -132,6 +133,7 @@ async function subPost() {
   const mode = window.aura.composeMode || 'note';
   const isGrat = mode === 'gratitude';
   const allowAi = isGrat ? !!document.getElementById('gratAllowAi')?.checked : true;
+  const ap = window.aura.answeringPrompt;  // set when answering a daily prompt
   const btn = document.getElementById('pbtn');
   btn.disabled = true;
   btn.textContent = 'Posting...';
@@ -145,9 +147,12 @@ async function subPost() {
         mood: window.aura.selectedMood,
         post_type: isGrat ? 'gratitude' : undefined,
         allow_ai: allowAi,
+        prompt_persona: ap ? ap.persona : undefined,
+        prompt_text: ap ? ap.text : undefined,
       }),
     });
     if (r.ok) {
+      window.aura.answeringPrompt = null;
       document.getElementById('ct').value = '';
       cntCh();
       rmImg();

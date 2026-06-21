@@ -131,6 +131,9 @@ def api_create():
         return jsonify({"error": "kosong"}), 400
     if image_too_big(img):
         return jsonify({"error": "Gambar terlalu besar (maks ~2MB)"}), 413
+    # Daily-prompt answer context (so the persona who asked replies to the answer)
+    prompt_persona = data.get("prompt_persona")
+    prompt_text = cap(data.get("prompt_text", ""), 200)
     final_type = ptype or ("image" if img else "text")
     db = get_db()
     pid = db.execute(
@@ -142,7 +145,8 @@ def api_create():
 
     skip_ai = final_type == "gratitude" and not allow_ai
 
-    def bg(pid=pid, i=img, cap=content, m=mood, skip=skip_ai, grat=(final_type == "gratitude")):
+    def bg(pid=pid, i=img, cap_=content, m=mood, skip=skip_ai,
+           grat=(final_type == "gratitude"), pp=prompt_persona, pt=prompt_text):
         desc = None
         if i:
             desc = describe_image(i)
@@ -156,7 +160,12 @@ def api_create():
         if skip:
             return  # gratitude entry with AI comments turned off
         prefix = (f"[mood: {m}] " if m else "") + ("[catatan syukur] " if grat else "")
-        schedule_responses(pid, prefix + (cap or desc or "foto"), i, poster="me")
+        prioritize = pp if (pp and PMAP.get(pp)) else None
+        note = f'[user baru jawab pertanyaan kamu: "{pt}"]' if (prioritize and pt) else ""
+        schedule_responses(
+            pid, prefix + (cap_ or desc or "foto"), i, poster="me",
+            prioritize=prioritize, note=note,
+        )
 
     threading.Thread(target=bg, daemon=True).start()
     return jsonify({"id": pid}), 201

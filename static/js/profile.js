@@ -36,7 +36,7 @@ async function openProfile(username) {
         <div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:6px">
         ${d.highlights.map(s => `<div style="flex-shrink:0;text-align:center">
           <div style="width:64px;height:64px;border-radius:50%;overflow:hidden;border:2px solid var(--acc);cursor:pointer"
-            onclick="closeProfOv();openHighlightStory(${s.id})">
+            onclick="closeProfOv();openHighlightStory(${s.id}, '${d.username}')">
             <img src="/api/stories/${s.id}/image" style="width:100%;height:100%;object-fit:cover"></div>
           <div style="font-size:9.5px;color:var(--mu);margin-top:4px;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((s.caption || '').split(' ').slice(0, 2).join(' '))}</div>
         </div>`).join('')}

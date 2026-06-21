@@ -5,6 +5,7 @@
 // ===========================================================================
 
 window.aura.dailyPromptText = null;
+window.aura.dailyPromptPersona = null;
 
 async function loadDailyBanner() {
   try {
@@ -14,10 +15,12 @@ async function loadDailyBanner() {
     if (!d.prompt) {
       el.innerHTML = '';
       window.aura.dailyPromptText = null;
+      window.aura.dailyPromptPersona = null;
       return;
     }
     const p = d.prompt;
     window.aura.dailyPromptText = p.text;
+    window.aura.dailyPromptPersona = p.persona.username;
     el.innerHTML = `
       <div class="daily-bn" onclick="useDailyPrompt()">
         <div class="av" style="background:${p.persona.color}">${p.persona.avatar}</div>
@@ -33,7 +36,13 @@ window.loadDailyBanner = loadDailyBanner;
 
 function useDailyPrompt() {
   openC();
-  // Pre-fill placeholder with the prompt — leave textarea empty
+  // Mark this compose as an answer to the persona's question so they reply to it.
+  if (window.aura.dailyPromptPersona) {
+    window.aura.answeringPrompt = {
+      persona: window.aura.dailyPromptPersona,
+      text: window.aura.dailyPromptText,
+    };
+  }
   const ta = document.getElementById('ct');
   if (window.aura.dailyPromptText) {
     ta.placeholder = window.aura.dailyPromptText;

@@ -46,6 +46,7 @@ function renderStories() {
 
 function openSVUser(username) {
   const aura = window.aura;
+  aura.curHighlightUser = null;
   const idx = aura.storyData.findIndex(s => s.username === username);
   const p = aura.personas.find(x => x.username === username);
   if (idx >= 0 && aura.storyData[idx].slides.length > 0) {
@@ -172,16 +173,22 @@ function openStoryFromProfile(username, slideIdx) {
 }
 window.openStoryFromProfile = openStoryFromProfile;
 
-function openHighlightStory(storyId) {
+function openHighlightStory(storyId, username) {
   const sv = document.getElementById('sv');
+  const p = (window.aura.personas || []).find(x => x.username === username);
   document.getElementById('sv-bars').innerHTML = '<div class="svbr"><div class="svf" id="svf-0"></div></div>';
   document.getElementById('sve').innerHTML = `
     <div class="sv-tap sv-tap-left" onclick="closeSV()"></div>
     <img src="/api/stories/${storyId}/image" style="width:100%;height:100%;object-fit:cover">
     <div class="sv-tap sv-tap-right" onclick="closeSV()"></div>`;
-  document.getElementById('svun').textContent = 'Sorotan';
-  document.getElementById('sv-time').textContent = '✨';
+  document.getElementById('svun').textContent = p ? p.display : 'Sorotan';
+  if (p) {
+    document.getElementById('svav').textContent = p.avatar;
+    document.getElementById('svav').style.background = p.color;
+  }
+  document.getElementById('sv-time').textContent = '✨ Sorotan';
   window.aura.curStoryUser = -1;
+  window.aura.curHighlightUser = username || null;
   sv.classList.add('open');
   startStoryTimer(0, 1);
 }
@@ -193,34 +200,44 @@ async function sendStoryReply() {
   const txt = (inp?.value || '').trim();
   if (!txt) return;
   const userIdx = window.aura.curStoryUser;
-  if (userIdx < 0 || !window.aura.storyData[userIdx]) {
-    showToast('Story dari highlight, gak bisa balas');
+  let targetUser, targetDisplay, ctx;
+  if (userIdx >= 0 && window.aura.storyData[userIdx]) {
+    // Active story
+    const friend = window.aura.storyData[userIdx];
+    if (friend.username === 'me') {
+      showToast('Gak bisa balas story sendiri');
+      return;
+    }
+    targetUser = friend.username;
+    targetDisplay = friend.display;
+    const slide = friend.slides[window.aura.curSlide];
+    ctx = slide && slide.caption
+      ? `[balas story: "${slide.caption}"] ${txt}`
+      : `[balas story] ${txt}`;
+  } else if (window.aura.curHighlightUser) {
+    // Highlight (Sorotan) — DM the persona who owns it
+    targetUser = window.aura.curHighlightUser;
+    const pp = (window.aura.personas || []).find(x => x.username === targetUser);
+    targetDisplay = pp ? pp.display : targetUser;
+    ctx = `[balas sorotan] ${txt}`;
+  } else {
+    showToast('Gak bisa balas ini');
     return;
   }
-  const friend = window.aura.storyData[userIdx];
-  if (friend.username === 'me') {
-    showToast('Gak bisa balas story sendiri');
-    return;
-  }
-  const slide = friend.slides[window.aura.curSlide];
-  // Compose context: include story caption as quoted prefix
-  const ctx = slide?.caption
-    ? `[balas story: "${slide.caption}"] ${txt}`
-    : `[balas story-mu] ${txt}`;
   inp.value = '';
   try {
-    const r = await fetch('/api/dm/' + friend.username, {
+    const r = await fetch('/api/dm/' + targetUser, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: ctx }),
     });
     if (r.ok) {
-      showToast(`💬 Pesan dikirim ke ${friend.display}`);
+      showToast(`💬 Pesan dikirim ke ${targetDisplay}`);
       // Close story viewer + jump into DM thread for continuity
       closeSV();
       setTimeout(() => {
         switchPage('dm');
-        setTimeout(() => openDmThread(friend.username), 200);
+        setTimeout(() => openDmThread(targetUser), 200);
       }, 400);
     } else {
       showToast('❌ Gagal kirim');

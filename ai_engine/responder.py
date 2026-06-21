@@ -12,7 +12,7 @@ from personas import PERSONAS
 from llm.generators import comment_image, comment_text
 
 
-def schedule_responses(pid, content, img=None, poster="me"):
+def schedule_responses(pid, content, img=None, poster="me", prioritize=None, note=""):
     """Schedule AI persona reactions to a post.
 
     Args:
@@ -21,6 +21,9 @@ def schedule_responses(pid, content, img=None, poster="me"):
         img: optional base64 image string
         poster: username of the poster — skip self-reply.
                 MUST be set when an AI is the poster, otherwise infinite self-reply.
+        prioritize: optional persona username forced to comment (prob=1).
+        note: context prefix added to the prioritized persona's prompt only
+              (e.g. "[user just answered your question ...]").
     """
     is_img = bool(img)
     for p in PERSONAS:
@@ -54,17 +57,21 @@ def schedule_responses(pid, content, img=None, poster="me"):
             threading.Thread(target=_like, daemon=True).start()
 
         # ── AI COMMENT: probabilistic ──
+        is_target = prioritize is not None and p["username"] == prioritize
         prob = p["reply_prob"]
         if is_img and p.get("image_bias"):
             prob = min(prob + 0.25, 0.85)
         if is_img and not p.get("vision_model"):
             prob *= 0.25
+        if is_target:
+            prob = 1.0  # the persona who asked always answers the reply
         if random.random() > prob:
             continue
 
         delay = random.randint(*p["delay_range"])
+        ctx = f"{note} {content}".strip() if (is_target and note) else content
 
-        def _run(p=p, d=delay, pid=pid, txt=content, i=img):
+        def _run(p=p, d=delay, pid=pid, txt=ctx, i=img):
             time.sleep(d)
             print(f"[AI:{p['username']}] commenting post#{pid}")
             c = comment_image(i, p) if i and p.get("vision_model") else comment_text(txt, p)
