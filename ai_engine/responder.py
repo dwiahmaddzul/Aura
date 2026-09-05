@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 
-from config import DB_PATH
+from config import AI_COMMENT_MAX, AI_COMMENT_ON_AI_SCALE, DB_PATH
 from personas import PERSONAS
 from llm.generators import comment_image, comment_text
 
@@ -26,9 +26,11 @@ def schedule_responses(pid, content, img=None, poster="me", prioritize=None, not
               (e.g. "[user just answered your question ...]").
     """
     is_img = bool(img)
-    for p in PERSONAS:
-        if p["username"] == poster:
-            continue  # don't reply to own post
+    # Shuffle biar cap komentar adil, nggak selalu persona yang sama duluan.
+    candidates = [p for p in PERSONAS if p["username"] != poster]
+    random.shuffle(candidates)
+    scheduled = 0
+    for p in candidates:
 
         # ── AI LIKE: independent 40-65% chance ──
         like_prob = 0.50 if is_img else 0.40
@@ -63,10 +65,15 @@ def schedule_responses(pid, content, img=None, poster="me", prioritize=None, not
             prob = min(prob + 0.25, 0.85)
         if is_img and not p.get("vision_model"):
             prob *= 0.25
+        if poster != "me":
+            prob *= AI_COMMENT_ON_AI_SCALE  # redam obrolan AI↔AI
         if is_target:
             prob = 1.0  # the persona who asked always answers the reply
+        elif scheduled >= AI_COMMENT_MAX:
+            continue  # cap tercapai; target balasan tetap lolos di atas
         if random.random() > prob:
             continue
+        scheduled += 1
 
         delay = random.randint(*p["delay_range"])
         ctx = f"{note} {content}".strip() if (is_target and note) else content

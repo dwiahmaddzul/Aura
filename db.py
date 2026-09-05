@@ -11,7 +11,15 @@ from config import DB_PATH
 def init_db():
     """Initialize schema. Idempotent — safe to call multiple times."""
     c = sqlite3.connect(DB_PATH)
+    # WAL: penulis (scheduler threads) tidak memblok pembaca (request Flask).
+    # Persistent per-file, cukup di-set sekali di sini.
+    try:
+        c.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        pass
     c.executescript("""
+        CREATE TABLE IF NOT EXISTS ai_usage(day TEXT PRIMARY KEY,
+            images INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS posts(id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT, content TEXT, image_b64 TEXT, image_desc TEXT,
             post_type TEXT DEFAULT 'text', mood TEXT, repost_of INTEGER,

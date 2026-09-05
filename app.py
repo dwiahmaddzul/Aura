@@ -6,7 +6,7 @@ Run dev   : python app.py
 Run prod  : gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4
 """
 import os
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 
 from config import (
     DB_PATH,
@@ -34,6 +34,16 @@ def create_app():
     def index():
         return render_template("index.html")
 
+    @app.before_request
+    def _track_activity():
+        # Semua hit /api/* datang dari browser user (app single-user).
+        # /api/health dikecualikan supaya uptime monitor tidak dihitung
+        # sebagai "user aktif".
+        p = request.path
+        if p.startswith("/api/") and p != "/api/health":
+            from ai_engine.limits import mark_activity
+            mark_activity()
+
     return app
 
 
@@ -50,6 +60,15 @@ def _print_banner():
     print(f"  Vision    : {VISION_MODEL}")
     print(f"  ImageGen  : {IMAGE_MODEL}")
     print(f"  DB        : {DB_PATH}")
+    from config import (
+        AI_ACTIVE_WINDOW_MIN, AI_IMAGE_DAILY_LIMIT, AI_POST_IMAGE_PROB,
+        AI_POST_INTERVAL_MAX, AI_POST_INTERVAL_MIN, AI_STORY_INTERVAL_MAX,
+        AI_STORY_INTERVAL_MIN, AI_STORY_PROB,
+    )
+    print(f"  AI-Post   : tiap {AI_POST_INTERVAL_MIN}-{AI_POST_INTERVAL_MAX}mnt, img prob {AI_POST_IMAGE_PROB}")
+    print(f"  AI-Story  : tiap {AI_STORY_INTERVAL_MIN}-{AI_STORY_INTERVAL_MAX}mnt, prob {AI_STORY_PROB}")
+    print(f"  Img/hari  : max {AI_IMAGE_DAILY_LIMIT}")
+    print(f"  ActiveWin : {AI_ACTIVE_WINDOW_MIN}mnt {'(24/7)' if AI_ACTIVE_WINDOW_MIN <= 0 else ''}")
     print(f"  Personas  : {len(PERSONAS)}")
     for p in PERSONAS:
         print(f"    {p['avatar']} {p['username']:<15} txt={p['text_model'].split('/')[-1][:20]:<20} prob={p['reply_prob']}")

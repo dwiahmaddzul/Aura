@@ -9,7 +9,16 @@ import sqlite3
 import threading
 import time
 
-from config import DB_PATH
+from config import (
+    DB_PATH,
+    AI_POST_IMAGE_PROB,
+    AI_POST_INTERVAL_MAX,
+    AI_POST_INTERVAL_MIN,
+    AI_STORY_INTERVAL_MAX,
+    AI_STORY_INTERVAL_MIN,
+    AI_STORY_PROB,
+)
+from ai_engine.limits import IDLE_RECHECK_SEC, try_consume_image, user_is_active
 from personas import PERSONAS
 from llm.client import call_llm, generate_image
 from llm.memory import get_persona_memory, pick_fresh_topic, pick_fresh_story_prompt
@@ -20,11 +29,16 @@ def ai_post_scheduler():
     """Background loop: AI personas post on timeline periodically, with memory."""
     time.sleep(120)  # wait 2min after startup
     while True:
+        # Activity gate: kalau app lagi nggak dibuka, jangan bakar API.
+        if not user_is_active():
+            time.sleep(IDLE_RECHECK_SEC)
+            continue
         try:
             p = random.choice(PERSONAS)
             topic = pick_fresh_topic(p, "")
             memory = get_persona_memory(p["username"])
-            do_image = random.random() < 0.30
+            # Gambar hanya kalau lolos peluang DAN kuota harian masih ada.
+            do_image = random.random() < AI_POST_IMAGE_PROB and try_consume_image()
             print(
                 f"[AI-Post] {p['username']} {'img+' if do_image else ''}"
                 f"post '{topic}' (memory: {bool(memory)})"
@@ -74,16 +88,30 @@ def ai_post_scheduler():
                 schedule_responses(pid, content, img_b64, poster=p["username"])
         except Exception as e:
             print(f"[AI-Post] error: {e}")
-        wait = random.randint(480, 900)
+        wait = random.randint(AI_POST_INTERVAL_MIN * 60, AI_POST_INTERVAL_MAX * 60)
         print(f"[AI-Post] next in {wait // 60}min")
         time.sleep(wait)
+
+
+class _SkipCycle(Exception):
+    """Sinyal internal: lewati siklus story ini tanpa dianggap error."""
 
 
 def ai_story_scheduler():
     """Background loop: generate AI stories with FLUX, memory-aware, highlight decision."""
     time.sleep(60)
     while True:
+        # Activity gate: idem post scheduler.
+        if not user_is_active():
+            time.sleep(IDLE_RECHECK_SEC)
+            continue
         try:
+            # Nggak tiap siklus harus jadi story (v1.0: selalu).
+            if random.random() >= AI_STORY_PROB:
+                raise _SkipCycle("prob")
+            # Story = pasti 1 gambar FLUX, jadi cek kuota dulu.
+            if not try_consume_image():
+                raise _SkipCycle("kuota gambar harian habis")
             p = random.choice(PERSONAS)
             memory = get_persona_memory(p["username"])
             mem_captions = memory if memory else ""
@@ -110,9 +138,11 @@ def ai_story_scheduler():
                 )
             else:
                 print("[AI-Story] image gen failed")
+        except _SkipCycle as s:
+            print(f"[AI-Story] skip: {s}")
         except Exception as e:
             print(f"[AI-Story] error: {e}")
-        wait = random.randint(900, 1500)
+        wait = random.randint(AI_STORY_INTERVAL_MIN * 60, AI_STORY_INTERVAL_MAX * 60)
         print(f"[AI-Story] next in {wait // 60}min")
         time.sleep(wait)
 

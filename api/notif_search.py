@@ -26,9 +26,17 @@ def api_health():
     has_key = bool(SILICONFLOW_API_KEY) and not SILICONFLOW_API_KEY.startswith("sk-GANTI")
     # We don't actually call the API here (would slow every page load).
     # We just check the key is present and not the placeholder value.
+    from config import AI_ACTIVE_WINDOW_MIN, AI_IMAGE_DAILY_LIMIT
+    from ai_engine.limits import images_used_today, user_is_active
     return jsonify({
         "api_key_present": has_key,
         "api_key_format_ok": has_key and SILICONFLOW_API_KEY.startswith("sk-") and len(SILICONFLOW_API_KEY) > 20,
+        "ai": {
+            "images_today": images_used_today(),
+            "image_daily_limit": AI_IMAGE_DAILY_LIMIT,
+            "schedulers_active": user_is_active(),
+            "active_window_min": AI_ACTIVE_WINDOW_MIN,
+        },
     })
 
 

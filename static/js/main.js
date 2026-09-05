@@ -60,10 +60,15 @@ window.MOOD_EMOJI = {
   loadDailyBanner();
   loadThrowback();
   maybeShowOnboarding();
-  setInterval(loadFeed, 15000);
-  setInterval(loadStories, 30000);
-  setInterval(loadDailyBanner, 5 * 60 * 1000);
+  // Polling berhenti saat tab disembunyikan — tab yang ketinggalan kebuka
+  // semalaman tidak lagi dihitung server sebagai "user aktif" (hemat API).
+  setInterval(() => { if (!document.hidden) loadFeed(); }, 15000);
+  setInterval(() => { if (!document.hidden) loadStories(); }, 30000);
+  setInterval(() => { if (!document.hidden) loadDailyBanner(); }, 5 * 60 * 1000);
   setInterval(applyTimeAwarePlaceholder, 30 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { loadFeed(); loadStories(); }
+  });
 })();
 
 function showApiKeyWarning() {
