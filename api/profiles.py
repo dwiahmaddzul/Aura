@@ -6,9 +6,11 @@ import time
 
 from flask import Blueprint, jsonify
 
+import settings_rt as S
+from api.serialize import POST_COLS, build_posts
+from api.stories import slide
 from db import get_db
 from personas import PERSONAS, PMAP
-from utils import time_ago
 
 bp = Blueprint("profiles", __name__)
 
@@ -23,6 +25,7 @@ def api_personas():
                 "avatar": p["avatar"],
                 "color": p["color"],
                 "bio": p.get("bio", ""),
+                "active": S.persona(p["username"], "active"),
             }
             for p in PERSONAS
         ]
@@ -35,53 +38,26 @@ def api_profile(username):
     if not p:
         return jsonify({"error": "not found"}), 404
     db = get_db()
-    posts = db.execute(
-        "SELECT * FROM posts WHERE username=? ORDER BY created_at DESC LIMIT 20",
+    rows = db.execute(
+        f"SELECT {POST_COLS} FROM posts WHERE username=? ORDER BY created_at DESC LIMIT 30",
         (username,),
     ).fetchall()
-    post_list = []
-    for row in posts:
-        row = dict(row)
-        row["has_image"] = bool(row.get("image_b64"))
-        row["time_ago"] = time_ago(row["created_at"])
-        row.pop("image_b64", None)
-        row.pop("image_desc", None)
-        post_list.append(row)
+    post_count = db.execute(
+        "SELECT COUNT(*) AS n FROM posts WHERE username=?", (username,)
+    ).fetchone()["n"]
     comment_count = db.execute(
-        "SELECT COUNT(*) as cnt FROM comments WHERE username=?", (username,)
-    ).fetchone()["cnt"]
-
-    # Highlights (Sorotan) — permanent, not time-limited
-    highlight_rows = db.execute(
-        "SELECT id, caption, created_at FROM stories "
-        "WHERE username=? AND is_highlight=1 ORDER BY created_at DESC LIMIT 8",
+        "SELECT COUNT(*) AS n FROM comments WHERE username=?", (username,)
+    ).fetchone()["n"]
+    cols = "id, username, caption, prompt, is_highlight, created_at, img_w, img_h"
+    highlights = db.execute(
+        f"SELECT {cols} FROM stories WHERE username=? AND is_highlight=1 "
+        "ORDER BY created_at DESC LIMIT 12",
         (username,),
     ).fetchall()
-    highlight_list = [
-        {
-            "id": s["id"],
-            "caption": s["caption"],
-            "time_ago": time_ago(s["created_at"]),
-        }
-        for s in highlight_rows
-    ]
-
-    # Active stories (last 24h) — for story viewer trigger
-    cutoff = time.time() - 86400
-    story_rows = db.execute(
-        "SELECT id, caption, created_at FROM stories "
-        "WHERE username=? AND created_at>? ORDER BY created_at DESC",
-        (username, cutoff),
+    stories = db.execute(
+        f"SELECT {cols} FROM stories WHERE username=? AND created_at>? ORDER BY created_at ASC",
+        (username, time.time() - 86400),
     ).fetchall()
-    story_list = [
-        {
-            "id": s["id"],
-            "caption": s["caption"],
-            "time_ago": time_ago(s["created_at"]),
-        }
-        for s in story_rows
-    ]
-
     return jsonify(
         {
             "username": p["username"],
@@ -89,10 +65,10 @@ def api_profile(username):
             "avatar": p["avatar"],
             "color": p["color"],
             "bio": p.get("bio", ""),
-            "posts": post_list,
-            "post_count": len(post_list),
+            "posts": build_posts(db, rows, with_comments=False),
+            "post_count": post_count,
             "comment_count": comment_count,
-            "highlights": highlight_list,
-            "stories": story_list,
+            "highlights": [slide(s) for s in highlights],
+            "stories": [slide(s) for s in stories],
         }
     )

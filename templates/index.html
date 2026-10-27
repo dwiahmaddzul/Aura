@@ -6,18 +6,18 @@
 <title>Aura</title>
 <meta name="description" content="Tempat curhatmu sendiri — diary yang ngalir kayak medsos pribadi.">
 <meta name="theme-color" content="#0c0a1c">
-<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/favicon.svg') }}">
-<link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon.svg') }}">
+<link rel="icon" type="image/svg+xml" href="{{ asset('icons/favicon.svg') }}">
+<link rel="apple-touch-icon" href="{{ asset('icons/icon.svg') }}">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+<link rel="stylesheet" href="{{ asset('css/main.css') }}">
 <script>if(localStorage.getItem('auraGateOk')==='1')document.documentElement.classList.add('gate-ok');</script>
 </head>
-<body>
+<body data-page="home">
 <!-- DEMO GATE (soft gate for the public demo — not real auth) -->
 <div class="gate" id="gate">
   <div class="gate-card">
-    <div class="gate-logo"><img src="{{ url_for('static', filename='icons/icon-mark.svg') }}" alt="" width="34" height="34"> Aura</div>
+    <div class="gate-logo"><img src="{{ asset('icons/icon-mark.svg') }}" alt="" width="34" height="34"> Aura</div>
     <div class="gate-tag">Ruang curhat pribadimu — diary yang ngalir kayak medsos.</div>
     <input class="gate-inp" id="gateCode" type="password" placeholder="Masukin kode rahasia kamu…" onkeydown="if(event.key==='Enter')unlockGate()" autocomplete="off" autocapitalize="off" spellcheck="false">
     <button class="gate-btn" onclick="unlockGate()">Masuk</button>
@@ -42,18 +42,20 @@ function fillGate(c){var i=document.getElementById('gateCode');i.value=c;i.focus
 
 <div class="topbar">
   <div class="logo">
-    <img src="{{ url_for('static', filename='icons/icon-mark.svg') }}" alt="" width="28" height="28" style="vertical-align:-7px;margin-right:4px">
+    <img src="{{ asset('icons/icon-mark.svg') }}" alt="" width="28" height="28" style="vertical-align:-7px;margin-right:4px">
     Aura
   </div>
   <div class="topbar-r">
     <button class="ib" onclick="switchPage('notif')" aria-label="Aktivitas">
       <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
     </button>
-    <button class="ib" onclick="switchPage('dm')">
+    <button class="ib" onclick="switchPage('dm')" aria-label="Pesan">
       <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     </button>
   </div>
 </div>
+
+<button class="newpill" id="newPill" hidden onclick="showPendingPosts()"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg><span>postingan baru</span></button>
 
 <!-- HOME -->
 <div class="page active" id="page-home">
@@ -71,6 +73,7 @@ function fillGate(c){var i=document.getElementById('gateCode');i.value=c;i.focus
     </div>
   </div>
   <div id="feed"><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div></div>
+  <div class="feed-foot" id="feedMore"></div>
 </div>
 
 <!-- JURNAL (archive of your own entries) -->
@@ -94,10 +97,11 @@ function fillGate(c){var i=document.getElementById('gateCode');i.value=c;i.focus
 <div class="page" id="page-profile">
   <div class="prh">
     <div class="prt">
-      <div class="prpic" id="myAvatar" style="background:linear-gradient(135deg,var(--acc),var(--a2));cursor:pointer" onclick="openMyStoryUpload()">K</div>
+      <div class="prpic" id="myAvatar" style="background:linear-gradient(140deg,var(--acc),#b98a52);color:var(--acc-ink);cursor:pointer" onclick="openMyStoryUpload()" role="button" tabindex="0" aria-label="Tambah story">K</div>
       <div class="prs">
         <div class="st"><span class="stn" id="sp">0</span><span class="stl2">Entri</span></div>
         <div class="st"><span class="stn" id="thisMonth">0</span><span class="stl2">Bulan ini</span></div>
+        <div class="st"><span class="stn" id="photoCount">0</span><span class="stl2">Foto</span></div>
       </div>
     </div>
     <div class="prn" id="myDisplayName">Kamu 👤</div>
@@ -107,26 +111,27 @@ function fillGate(c){var i=document.getElementById('gateCode');i.value=c;i.focus
     <div class="pra">
       <button class="prbt" onclick="openEditProfile()">Edit Profil</button>
       <button class="prbt" onclick="shareProfile()">Bagikan</button>
+      <a class="prbt prbt-ic" href="/kelola" aria-label="Pengaturan teman AI" title="Pengaturan teman AI"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></a>
     </div>
   </div>
   <div class="ptabs">
-    <div class="ptab active" onclick="switchPT(this,'grid')">
+    <button class="ptab active" data-tab="grid" onclick="switchPT(this,'grid')" aria-label="Foto">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-    </div>
-    <div class="ptab" onclick="switchPT(this,'tweets')">
+    </button>
+    <button class="ptab" data-tab="tweets" onclick="switchPT(this,'tweets')" aria-label="Catatan">
       <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-    </div>
-    <div class="ptab" onclick="switchPT(this,'liked')">
+    </button>
+    <button class="ptab" data-tab="liked" onclick="switchPT(this,'liked')" aria-label="Disukai">
       <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-    </div>
-    <div class="ptab" onclick="switchPT(this,'saved')">
+    </button>
+    <button class="ptab" data-tab="saved" onclick="switchPT(this,'saved')" aria-label="Disimpan">
       <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-    </div>
-    <div class="ptab" onclick="switchPT(this,'mood')">
+    </button>
+    <button class="ptab" data-tab="mood" onclick="switchPT(this,'mood')" aria-label="Mood">
       <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 14 3-3 3 3 5-5"/></svg>
-    </div>
+    </button>
   </div>
-  <div id="pc2"><div class="pgrid" id="pg"></div></div>
+  <div id="pc2"></div>
 </div>
 
 <!-- DM PAGE -->
@@ -168,8 +173,8 @@ function fillGate(c){var i=document.getElementById('gateCode');i.value=c;i.focus
       <label class="grat-toggle"><input type="checkbox" id="gratAllowAi" checked> Izinkan teman komentar di catatan ini</label>
     </div>
     <div class="sca">
-      <div class="av av-me" style="width:36px;height:36px;font-size:14px">K</div>
-      <textarea id="ct" placeholder="Apa yang lagi kamu pikirin?…" oninput="cntCh()" maxlength="280"></textarea>
+      <div class="av av-me" id="composeAvatar2" style="width:36px;height:36px;font-size:14px">K</div>
+      <textarea id="ct" placeholder="Apa yang lagi kamu pikirin?" oninput="cntCh()" maxlength="280" aria-label="Isi tulisan"></textarea>
     </div>
     <div id="iprev" style="display:none" class="ip">
       <img id="iel" src="" alt=""><button class="rim" onclick="rmImg()">×</button>
@@ -201,21 +206,20 @@ function fillGate(c){var i=document.getElementById('gateCode');i.value=c;i.focus
 </div>
 
 <!-- STORY VIEWER -->
-<div class="sv" id="sv">
-  <div class="svb" id="sv-bars"></div>
-  <div class="svt">
-    <div class="svav" id="svav"></div>
-    <div class="svu" id="svun">...</div>
-    <div class="svti" id="sv-time">baru saja</div>
-    <button class="svcl" onclick="closeSV()">×</button>
-  </div>
-  <div class="svc" id="sve">
-    <div class="sv-tap sv-tap-left" onclick="storyPrev()"></div>
-    <div class="sv-tap sv-tap-right" onclick="storyNext()"></div>
-  </div>
-  <div class="svbot">
-    <input class="svrep" id="svReplyInput" placeholder="Balas story…" onkeydown="if(event.key==='Enter')sendStoryReply()">
-    <button class="svh" id="svLikeBtn" onclick="likeStory()">🤍</button>
+<div class="sv" id="sv" aria-hidden="true" onclick="if(event.target===this)closeSV()">
+  <div class="sv-frame">
+    <div class="svb" id="sv-bars"></div>
+    <div class="svt">
+      <div class="svav" id="svav"></div>
+      <div class="svu" id="svun">…</div>
+      <div class="svti" id="sv-time"></div>
+      <button class="svcl" onclick="closeSV()" aria-label="Tutup">×</button>
+    </div>
+    <div class="svc" id="sve"></div>
+    <div class="svbot">
+      <input class="svrep" id="svReplyInput" placeholder="Balas story…" onkeydown="if(event.key==='Enter'&&!event.isComposing)sendStoryReply()" aria-label="Balas story">
+      <button class="svh" id="svLikeBtn" onclick="likeStory()" aria-label="Suka story">🤍</button>
+    </div>
   </div>
 </div>
 
@@ -255,7 +259,7 @@ function fillGate(c){var i=document.getElementById('gateCode');i.value=c;i.focus
     <button class="prbt" style="width:100%;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="document.getElementById('suFile').click()"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Pilih Foto</button>
     <input type="file" id="suFile" accept="image/*" onchange="handleStoryFile(event)">
     <textarea class="epi-t" id="suCaption" placeholder="Caption (opsional)..." maxlength="200"></textarea>
-    <button class="pbtn" style="width:100%;margin-top:10px" onclick="submitStory()" id="suSubmit" disabled>Post Story</button>
+    <button class="pbtn" style="width:100%;margin-top:10px" onclick="submitStory()" id="suSubmit" disabled>Pasang story</button>
   </div>
 </div>
 
@@ -267,15 +271,42 @@ function fillGate(c){var i=document.getElementById('gateCode');i.value=c;i.focus
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<!-- POST MENU -->
+<div class="ov" id="menuOv" onclick="if(event.target===this)closeMenu()">
+  <div class="sheet sheet-menu">
+    <div class="sh"></div>
+    <div id="menuItems"></div>
+    <button class="menu-i muted" onclick="closeMenu()">Batal</button>
+  </div>
+</div>
+
+<!-- CONFIRM -->
+<div class="ov" id="confirmOv">
+  <div class="sheet sheet-menu">
+    <div class="sh"></div>
+    <div class="cf-t" id="confirmTitle">Yakin?</div>
+    <div class="cf-d" id="confirmText"></div>
+    <div class="cf-a">
+      <button class="prbt" id="confirmCancel">Batal</button>
+      <button class="pbtn" id="confirmOk">Ya</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()" role="dialog" aria-label="Foto">
+  <img alt="">
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <!-- JS — load order matters: main first, then domain modules -->
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
-<script src="{{ url_for('static', filename='js/stories.js') }}"></script>
-<script src="{{ url_for('static', filename='js/feed.js') }}"></script>
-<script src="{{ url_for('static', filename='js/profile.js') }}"></script>
-<script src="{{ url_for('static', filename='js/compose.js') }}"></script>
-<script src="{{ url_for('static', filename='js/dm.js') }}"></script>
-<script src="{{ url_for('static', filename='js/daily.js') }}"></script>
+<script src="{{ asset('js/main.js') }}"></script>
+<script src="{{ asset('js/stories.js') }}"></script>
+<script src="{{ asset('js/feed.js') }}"></script>
+<script src="{{ asset('js/profile.js') }}"></script>
+<script src="{{ asset('js/compose.js') }}"></script>
+<script src="{{ asset('js/dm.js') }}"></script>
+<script src="{{ asset('js/daily.js') }}"></script>
 </body>
 </html>

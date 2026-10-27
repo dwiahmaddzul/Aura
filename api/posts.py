@@ -1,195 +1,193 @@
 """
 Aura Social — Posts API Blueprint
-Endpoints: /api/posts (list/create), /api/posts/<id>/{image,like,comment}
+Endpoints:
+  GET    /api/posts                 list (?limit, ?before=<created_at>, ?mine=1, ?photos=1, ?q=, ?comments=0)
+  GET    /api/posts/<id>            one post
+  POST   /api/posts                 create (returns the created post)
+  DELETE /api/posts/<id>            delete one of YOUR posts
+  POST   /api/posts/<id>/{like,comment,bookmark}
+  GET    /api/posts/<id>/image      legacy image URL (served from media files)
 """
-import base64
 import random
-import sqlite3
 import threading
 import time
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, jsonify, request
 
-from config import DB_PATH
-from db import get_db
-from personas import PERSONAS, PMAP
-from utils import time_ago
-from security import cap, image_too_big, rate_limit, MAX_POST, MAX_COMMENT
-from llm.generators import comment_text, describe_image
+import media
+import settings_rt as S
+from ai_engine import limits
 from ai_engine.responder import schedule_responses
+from api.serialize import POST_COLS, build_posts, comment_dict, me_identity
+from db import connect, get_db
+from llm.generators import comment_text, describe_image
+from personas import PERSONAS, PMAP
+from security import MAX_COMMENT, MAX_POST, cap, image_too_big, rate_limit
 
 bp = Blueprint("posts", __name__)
 
 
+def _int_arg(name, default, lo, hi):
+    try:
+        return max(lo, min(hi, int(request.args.get(name, default))))
+    except (TypeError, ValueError):
+        return default
+
+
 @bp.route("/api/posts")
 def api_get_posts():
+    limit = _int_arg("limit", 20, 1, 60)
+    where, args = [], []
+    before = request.args.get("before")
+    if before:
+        try:
+            where.append("created_at < ?")
+            args.append(float(before))
+        except ValueError:
+            pass
+    if request.args.get("mine") == "1":
+        where.append("username = 'me'")
+    if request.args.get("photos") == "1":
+        where.append("has_img = 1")
+    q = (request.args.get("q") or "").strip()[:80]
+    if q:
+        esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where.append("content LIKE ? ESCAPE '\\'")
+        args.append(f"%{esc}%")
+    sql = f"SELECT {POST_COLS} FROM posts"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY created_at DESC LIMIT ?"
     db = get_db()
-    rows = db.execute(
-        "SELECT * FROM posts ORDER BY created_at DESC LIMIT 30"
-    ).fetchall()
-    # Bookmarks set for 'me'
-    bm_rows = db.execute(
-        "SELECT post_id FROM bookmarks WHERE username='me'"
-    ).fetchall()
-    bookmarked_ids = {r["post_id"] for r in bm_rows}
-    # Liked set for 'me'
-    lk_rows = db.execute("SELECT post_id FROM likes WHERE username='me'").fetchall()
-    liked_ids = {r["post_id"] for r in lk_rows}
-    # Editable profile for 'me'
-    me = db.execute("SELECT * FROM me_profile WHERE id=1").fetchone()
-    me_display = me["display_name"] if me else "Kamu 👤"
-    me_avatar = me["avatar"] if me else "K"
+    rows = db.execute(sql, (*args, limit)).fetchall()
+    return jsonify(build_posts(db, rows, with_comments=request.args.get("comments") != "0"))
 
-    out = []
-    for p in rows:
-        p = dict(p)
-        comms = db.execute(
-            "SELECT * FROM comments WHERE post_id=? ORDER BY created_at",
-            (p["id"],),
-        ).fetchall()
-        p["comments"] = []
-        for c in comms:
-            c = dict(c)
-            if c["username"] == "me":
-                c["display"] = me_display
-                c["avatar"] = me_avatar
-                c["color"] = "linear-gradient(135deg,#c9aa72,#7b61ff)"
-            else:
-                pers = PMAP.get(c["username"], {})
-                c["display"] = pers.get("display", c["username"])
-                c["avatar"] = pers.get("avatar", c["username"][0].upper())
-                c["color"] = pers.get(
-                    "color", "linear-gradient(135deg,#555,#777)"
-                )
-            c["time_ago"] = time_ago(c["created_at"])
-            p["comments"].append(c)
-        p["comment_count"] = len(p["comments"])
-        if p["username"] == "me":
-            p["display"] = me_display
-            p["avatar"] = me_avatar
-            p["color"] = "linear-gradient(135deg,#c9aa72,#7b61ff)"
-        else:
-            pers = PMAP.get(p["username"], {})
-            p["display"] = pers.get("display", p["username"])
-            p["avatar"] = pers.get("avatar", "?")
-            p["color"] = pers.get("color", "#555")
-        p["time_ago"] = time_ago(p["created_at"])
-        p["has_image"] = bool(p.get("image_b64"))
-        p["bookmarked"] = p["id"] in bookmarked_ids
-        p["is_liked"] = p["id"] in liked_ids
-        # Resolve repost reference
-        if p.get("repost_of"):
-            orig = db.execute(
-                "SELECT id, username, content, image_b64, mood, created_at "
-                "FROM posts WHERE id=?",
-                (p["repost_of"],),
-            ).fetchone()
-            if orig:
-                orig = dict(orig)
-                if orig["username"] == "me":
-                    orig["display"] = me_display
-                    orig["avatar"] = me_avatar
-                    orig["color"] = "linear-gradient(135deg,#c9aa72,#7b61ff)"
-                else:
-                    op = PMAP.get(orig["username"], {})
-                    orig["display"] = op.get("display", orig["username"])
-                    orig["avatar"] = op.get("avatar", "?")
-                    orig["color"] = op.get("color", "#555")
-                orig["has_image"] = bool(orig.get("image_b64"))
-                orig["time_ago"] = time_ago(orig["created_at"])
-                orig.pop("image_b64", None)
-                p["original"] = orig
-        # Don't send image_desc or raw image_b64 to frontend
-        p.pop("image_desc", None)
-        p.pop("image_b64", None)
-        out.append(p)
-    return jsonify(out)
+
+@bp.route("/api/posts/<int:pid>")
+def api_get_post(pid):
+    db = get_db()
+    rows = db.execute(f"SELECT {POST_COLS} FROM posts WHERE id=?", (pid,)).fetchall()
+    if not rows:
+        return jsonify({"error": "tidak ada"}), 404
+    return jsonify(build_posts(db, rows)[0])
 
 
 @bp.route("/api/posts/<int:pid>/image")
 def api_image(pid):
-    row = get_db().execute(
-        "SELECT image_b64 FROM posts WHERE id=?", (pid,)
-    ).fetchone()
-    if not row or not row["image_b64"]:
-        return "", 404
-    return Response(base64.b64decode(row["image_b64"]), mimetype="image/jpeg")
+    """URL lama, tetap dilayani (dari file WebP) supaya tab lama tidak rusak."""
+    from api.media_bp import serve
+    return serve("p", pid, "f")
 
 
 @bp.route("/api/posts", methods=["POST"])
 @rate_limit(max_calls=12, window=60)
 def api_create():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     content = cap(data.get("content", ""), MAX_POST)
-    img = data.get("image_b64")
-    mood = data.get("mood")  # optional: senang/sedih/capek/excited/bingung/tenang
+    img_b64 = data.get("image_b64") or None
+    mood = data.get("mood")
+    if mood not in (None, "senang", "sedih", "capek", "excited", "bingung", "tenang"):
+        mood = None
     ptype = data.get("post_type")
-    allow_ai = data.get("allow_ai", True)
+    allow_ai = bool(data.get("allow_ai", True))
     if ptype not in ("text", "image", "gratitude"):
         ptype = None
-    if not content and not img:
+    if not content and not img_b64:
         return jsonify({"error": "kosong"}), 400
-    if image_too_big(img):
+    if image_too_big(img_b64):
         return jsonify({"error": "Gambar terlalu besar (maks ~2MB)"}), 413
-    # Daily-prompt answer context (so the persona who asked replies to the answer)
+    raw = media.decode_b64(img_b64) if img_b64 else None
+    if img_b64 and not raw:
+        return jsonify({"error": "gambar tidak valid"}), 400
     prompt_persona = data.get("prompt_persona")
     prompt_text = cap(data.get("prompt_text", ""), 200)
-    final_type = ptype or ("image" if img else "text")
+    final_type = ptype or ("image" if raw else "text")
     db = get_db()
     pid = db.execute(
-        "INSERT INTO posts(username,content,image_b64,image_desc,post_type,mood,created_at) "
-        "VALUES(?,?,?,?,?,?,?)",
-        ("me", content, img, None, final_type, mood, time.time()),
+        "INSERT INTO posts(username,content,image_b64,image_desc,post_type,mood,has_img,created_at) "
+        "VALUES(?,?,NULL,NULL,?,?,?,?)",
+        ("me", content, final_type, mood, 1 if raw else 0, time.time()),
     ).lastrowid
     db.commit()
+    if raw:
+        w, h = media.save("p", pid, raw)
+        if w:
+            db.execute("UPDATE posts SET img_w=?, img_h=? WHERE id=?", (w, h, pid))
+        else:
+            db.execute("UPDATE posts SET has_img=0 WHERE id=?", (pid,))
+        db.commit()
 
     skip_ai = final_type == "gratitude" and not allow_ai
 
-    def bg(pid=pid, i=img, cap_=content, m=mood, skip=skip_ai,
+    def bg(pid=pid, img=raw, cap_=content, m=mood, skip=skip_ai,
            grat=(final_type == "gratitude"), pp=prompt_persona, pt=prompt_text):
-        desc = None
-        if i:
-            desc = describe_image(i)
-            if desc:
-                conn = sqlite3.connect(DB_PATH)
-                conn.execute(
-                    "UPDATE posts SET image_desc=? WHERE id=?", (desc, pid)
-                )
-                conn.commit()
-                conn.close()
         if skip:
-            return  # gratitude entry with AI comments turned off
+            return  # catatan syukur dengan komentar teman dimatikan
+        desc = None
+        if img and S.get("describe_uploads") and S.get("vision_enabled") and limits.interactive_ok():
+            desc = describe_image(img)
+            if desc:
+                conn = connect()
+                try:
+                    conn.execute("UPDATE posts SET image_desc=? WHERE id=?", (desc, pid))
+                    conn.commit()
+                finally:
+                    conn.close()
         prefix = (f"[mood: {m}] " if m else "") + ("[catatan syukur] " if grat else "")
         prioritize = pp if (pp and PMAP.get(pp)) else None
         note = f'[user baru jawab pertanyaan kamu: "{pt}"]' if (prioritize and pt) else ""
         schedule_responses(
-            pid, prefix + (cap_ or desc or "foto"), i, poster="me",
+            pid, prefix + (cap_ or desc or "foto"), img, poster="me",
             prioritize=prioritize, note=note,
         )
 
     threading.Thread(target=bg, daemon=True).start()
-    return jsonify({"id": pid}), 201
+    rows = db.execute(f"SELECT {POST_COLS} FROM posts WHERE id=?", (pid,)).fetchall()
+    post = build_posts(db, rows)[0]
+    return jsonify({"id": pid, "post": post}), 201
+
+
+@bp.route("/api/posts/<int:pid>", methods=["DELETE"])
+@rate_limit(max_calls=20, window=60)
+def api_delete(pid):
+    # App ini publik (gerbang depan hanya kosmetik), jadi menghapus tulisan
+    # butuh sesi /kelola yang sudah login di browser yang sama.
+    from api.kelola import _authed
+    if not _authed():
+        return jsonify({"error": "Masuk dulu ke Pengaturan (ikon gerigi di profil) untuk menghapus.",
+                        "need_login": True}), 401
+    db = get_db()
+    row = db.execute("SELECT username FROM posts WHERE id=?", (pid,)).fetchone()
+    if not row:
+        return jsonify({"error": "tidak ada"}), 404
+    if row["username"] != "me":
+        return jsonify({"error": "cuma bisa hapus tulisanmu sendiri"}), 403
+    db.execute("DELETE FROM comments WHERE post_id=?", (pid,))
+    db.execute("DELETE FROM likes WHERE post_id=?", (pid,))
+    db.execute("DELETE FROM bookmarks WHERE post_id=?", (pid,))
+    db.execute("DELETE FROM posts WHERE id=?", (pid,))
+    db.commit()
+    media.delete("p", pid)
+    return jsonify({"ok": True})
 
 
 @bp.route("/api/posts/<int:pid>/like", methods=["POST"])
 def api_like(pid):
     db = get_db()
-    try:
-        db.execute(
-            "INSERT INTO likes(post_id,username) VALUES(?,?)", (pid, "me")
-        )
+    if not db.execute("SELECT 1 FROM posts WHERE id=?", (pid,)).fetchone():
+        return jsonify({"error": "tidak ada"}), 404
+    cur = db.execute(
+        "INSERT OR IGNORE INTO likes(post_id,username,created_at) VALUES(?,?,?)",
+        (pid, "me", time.time()),
+    )
+    if cur.rowcount:
         db.execute("UPDATE posts SET likes=likes+1 WHERE id=?", (pid,))
-        db.commit()
         liked = True
-    except sqlite3.IntegrityError:
-        db.execute(
-            "DELETE FROM likes WHERE post_id=? AND username=?", (pid, "me")
-        )
-        db.execute(
-            "UPDATE posts SET likes=MAX(0,likes-1) WHERE id=?", (pid,)
-        )
-        db.commit()
+    else:
+        db.execute("DELETE FROM likes WHERE post_id=? AND username=?", (pid, "me"))
+        db.execute("UPDATE posts SET likes=MAX(0,likes-1) WHERE id=?", (pid,))
         liked = False
+    db.commit()
     row = db.execute("SELECT likes FROM posts WHERE id=?", (pid,)).fetchone()
     return jsonify({"liked": liked, "likes": row["likes"]})
 
@@ -197,19 +195,21 @@ def api_like(pid):
 @bp.route("/api/posts/<int:pid>/comment", methods=["POST"])
 @rate_limit(max_calls=20, window=60)
 def api_comment(pid):
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     txt = cap(data.get("text", ""), MAX_COMMENT)
     parent_id = data.get("parent_id")
     if not txt:
         return jsonify({"error": "kosong"}), 400
     db = get_db()
-    # Normalize to thread root (1-level threading). target_author = persona who
-    # owns the thread root, so an in-thread reply comes from the right friend.
+    if not db.execute("SELECT 1 FROM posts WHERE id=?", (pid,)).fetchone():
+        return jsonify({"error": "tidak ada"}), 404
+    # Normalisasi ke akar thread (balasan 1 tingkat). target_author = persona
+    # pemilik akar thread, supaya balasan di thread datang dari teman yang tepat.
     root = None
     target_author = None
     if parent_id:
         prow = db.execute(
-            "SELECT id, parent_id FROM comments WHERE id=?", (parent_id,)
+            "SELECT id, parent_id FROM comments WHERE id=? AND post_id=?", (parent_id, pid)
         ).fetchone()
         if prow:
             root = prow["parent_id"] or prow["id"]
@@ -224,60 +224,62 @@ def api_comment(pid):
         (pid, "me", txt, root, time.time()),
     ).lastrowid
     db.commit()
+    me = me_identity(db)
+    created = comment_dict(db.execute(
+        "SELECT id, post_id, username, content, is_ai, parent_id, created_at FROM comments WHERE id=?",
+        (my_id,)).fetchone(), me)
 
-    # Decide if an AI replies, and who.
+    # Siapa yang membalas (kalau ada)?
     p = None
-    do_reply = False
     if target_author:
         p = PMAP.get(target_author)
-        do_reply = p is not None and random.random() < 0.60  # they were addressed
-    elif not parent_id and random.random() < 0.40:
-        p = random.choice(PERSONAS)
-        do_reply = True
+        if p and not S.persona(p["username"], "active"):
+            p = None
+        do_reply = p is not None and random.random() < S.get("thread_reply_prob")
+    else:
+        pool = S.active_personas() or PERSONAS
+        do_reply = bool(pool) and random.random() < S.get("reply_to_user_prob")
+        p = random.choice(pool) if do_reply else None
 
-    if do_reply and p:
+    if do_reply and p and limits.interactive_ok():
         d = random.randint(15, 55)
-        # In-thread reply -> same root; reply to a fresh top-level -> nest under it
+        # Balasan di thread → akar yang sama; balasan atas komentar baru → di bawahnya.
         reply_root = root if target_author else my_id
 
         def reply(p=p, d=d, pid=pid, t=txt, rr=reply_root):
             time.sleep(d)
-            conn = sqlite3.connect(DB_PATH)
-            row = conn.execute(
-                "SELECT content FROM posts WHERE id=?", (pid,)
-            ).fetchone()
-            ctx = f'[post: {row[0] or "foto"}] ada yang nanggepin: "{t}"'
-            r = comment_text(ctx, p)
-            if r:
-                conn.execute(
-                    "INSERT INTO comments(post_id,username,content,is_ai,parent_id,created_at) "
-                    "VALUES(?,?,?,1,?,?)",
-                    (pid, p["username"], r, rr, time.time()),
-                )
-                conn.commit()
-            conn.close()
+            if not limits.interactive_ok():
+                return
+            conn = connect()
+            try:
+                row = conn.execute("SELECT content FROM posts WHERE id=?", (pid,)).fetchone()
+                ctx = f'[post: {(row[0] if row else "") or "foto"}] ada yang nanggepin: "{t}"'
+                r = comment_text(ctx, p, auto=False, kind="reply")
+                if r:
+                    conn.execute(
+                        "INSERT INTO comments(post_id,username,content,is_ai,parent_id,created_at) "
+                        "VALUES(?,?,?,1,?,?)",
+                        (pid, p["username"], r, rr, time.time()),
+                    )
+                    conn.commit()
+            finally:
+                conn.close()
 
         threading.Thread(target=reply, daemon=True).start()
-    return jsonify({"ok": True}), 201
+    return jsonify({"ok": True, "comment": created}), 201
 
 
 @bp.route("/api/posts/<int:pid>/bookmark", methods=["POST"])
 def api_bookmark(pid):
     """Toggle bookmark for 'me'."""
     db = get_db()
-    try:
-        db.execute(
-            "INSERT INTO bookmarks(post_id,username,created_at) VALUES(?,?,?)",
-            (pid, "me", time.time()),
-        )
+    cur = db.execute(
+        "INSERT OR IGNORE INTO bookmarks(post_id,username,created_at) VALUES(?,?,?)",
+        (pid, "me", time.time()),
+    )
+    if cur.rowcount:
         db.commit()
         return jsonify({"bookmarked": True})
-    except sqlite3.IntegrityError:
-        db.execute(
-            "DELETE FROM bookmarks WHERE post_id=? AND username=?", (pid, "me")
-        )
-        db.commit()
-        return jsonify({"bookmarked": False})
-
-# Repost was removed as a product decision (doesn't fit a single-user diary).
-# Old reposts still render read-only via the repost_of resolution in api_get_posts.
+    db.execute("DELETE FROM bookmarks WHERE post_id=? AND username=?", (pid, "me"))
+    db.commit()
+    return jsonify({"bookmarked": False})

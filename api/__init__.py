@@ -8,13 +8,12 @@ from api.profiles import bp as profiles_bp
 from api.dm import bp as dm_bp
 from api.me import bp as me_bp
 from api.notif_search import bp as notif_search_bp
+from api.media_bp import bp as media_bp
+from api.kelola import bp as kelola_bp
 
 
 def register_blueprints(app):
     """Register all API blueprints on the Flask app."""
-    app.register_blueprint(posts_bp)
-    app.register_blueprint(stories_bp)
-    app.register_blueprint(profiles_bp)
-    app.register_blueprint(dm_bp)
-    app.register_blueprint(me_bp)
-    app.register_blueprint(notif_search_bp)
+    for bp in (posts_bp, stories_bp, profiles_bp, dm_bp, me_bp, notif_search_bp,
+               media_bp, kelola_bp):
+        app.register_blueprint(bp)

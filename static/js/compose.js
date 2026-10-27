@@ -41,7 +41,7 @@ async function handleFile(ev) {
   const f = ev.target.files[0];
   if (!f) return;
   if (f.size > 12 * 1024 * 1024) {
-    showToast('⚠️ Max 12MB');
+    showToast('Foto maksimal 12 MB');
     return;
   }
   try {
@@ -51,7 +51,7 @@ async function handleFile(ev) {
     document.getElementById('iprev').style.display = 'block';
     openC();
   } catch {
-    showToast('❌ Gagal proses gambar');
+    showToast('Foto tidak bisa dibaca');
   }
 }
 window.handleFile = handleFile;
@@ -127,7 +127,7 @@ window.addEmoji = addEmoji;
 async function subPost() {
   const txt = document.getElementById('ct').value.trim();
   if (!txt && !window.aura.imgB64) {
-    showToast('⚠️ Tulis atau upload foto!');
+    showToast('Tulis sesuatu atau pilih foto dulu');
     return;
   }
   const mode = window.aura.composeMode || 'note';
@@ -136,12 +136,10 @@ async function subPost() {
   const ap = window.aura.answeringPrompt;  // set when answering a daily prompt
   const btn = document.getElementById('pbtn');
   btn.disabled = true;
-  btn.textContent = 'Posting...';
+  btn.textContent = 'Memposting…';
   try {
-    const r = await fetch('/api/posts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const d = await api('/api/posts', {
+      json: {
         content: txt,
         image_b64: window.aura.imgB64,
         mood: window.aura.selectedMood,
@@ -149,25 +147,25 @@ async function subPost() {
         allow_ai: allowAi,
         prompt_persona: ap ? ap.persona : undefined,
         prompt_text: ap ? ap.text : undefined,
-      }),
+      },
     });
-    if (r.ok) {
-      window.aura.answeringPrompt = null;
-      document.getElementById('ct').value = '';
-      cntCh();
-      rmImg();
-      resetMood();
-      setComposeMode('note');
-      closeC();
-      showToast(isGrat ? '🙏 Tersimpan' : '🚀 Posted!');
-      loadFeed();
-      // Refresh daily banner — should hide now
-      if (typeof loadDailyBanner === 'function') loadDailyBanner();
-    } else {
-      showToast('❌ Gagal');
+    window.aura.answeringPrompt = null;
+    document.getElementById('ct').value = '';
+    cntCh();
+    rmImg();
+    resetMood();
+    setComposeMode('note');
+    closeC();
+    showToast(isGrat ? '🙏 Tersimpan' : 'Terposting');
+    // Langsung tampil di atas feed, tanpa menunggu polling.
+    if (d && d.post && typeof prependPosts === 'function') {
+      if (window.aura.page !== 'home') switchPage('home');
+      prependPosts([d.post]);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  } catch {
-    showToast('❌ Network error');
+    if (typeof loadDailyBanner === 'function') loadDailyBanner();
+  } catch (e) {
+    showToast(e.status === 429 ? 'Pelan-pelan, coba lagi sebentar' : (e.message && e.status ? e.message : 'Gagal menyimpan, cek koneksi'));
   }
   btn.disabled = false;
   btn.textContent = 'Post';
@@ -186,7 +184,7 @@ function setComposeMode(mode) {
   const ta = document.getElementById('ct');
   if (ta) ta.placeholder = mode === 'gratitude'
     ? 'Apa yang kamu syukuri hari ini?'
-    : 'Apa yang lagi kamu pikirin?…';
+    : (document.querySelector('.cph')?.textContent || 'Apa yang lagi kamu pikirin?');
 }
 window.setComposeMode = setComposeMode;
 
@@ -216,26 +214,27 @@ async function saveProfile() {
   const bio = document.getElementById('epBio').value.trim();
   const avatar = document.getElementById('epAvatar').value.trim() || 'K';
   if (!name) {
-    showToast('⚠️ Nama wajib');
+    showToast('Nama wajib diisi');
     return;
   }
   try {
-    const r = await fetch('/api/me/profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: name, bio, avatar }),
+    await api('/api/me/profile', { json: { display_name: name, bio, avatar } });
+    window.aura.myProfile = { ...window.aura.myProfile, display_name: name, bio, avatar };
+    applyMyProfile();
+    closeEditProfile();
+    showToast('Profil tersimpan');
+    // Perbarui nama/avatar di kartu milikmu tanpa memuat ulang feed.
+    document.querySelectorAll('.pc').forEach(card => {
+      const p = window.aura.posts.get(parseInt(card.dataset.id, 10));
+      if (p && p.username === 'me') {
+        p.display = name; p.avatar = avatar;
+        const av = card.querySelector('.ph .av'); if (av) av.textContent = avatar;
+        const nm = card.querySelector('.ph .pu'); if (nm) nm.textContent = name;
+      }
     });
-    if (r.ok) {
-      window.aura.myProfile = { display_name: name, bio, avatar };
-      applyMyProfile();
-      closeEditProfile();
-      showToast('✅ Profil tersimpan');
-      loadFeed();
-    } else {
-      showToast('❌ Gagal simpan');
-    }
+    if (typeof renderStories === 'function') renderStories();
   } catch {
-    showToast('❌ Network error');
+    showToast('Gagal menyimpan profil');
   }
 }
 window.saveProfile = saveProfile;
@@ -264,7 +263,7 @@ async function handleStoryFile(ev) {
   const f = ev.target.files[0];
   if (!f) return;
   if (f.size > 12 * 1024 * 1024) {
-    showToast('⚠️ Max 12MB');
+    showToast('Foto maksimal 12 MB');
     return;
   }
   try {
@@ -274,7 +273,7 @@ async function handleStoryFile(ev) {
     document.getElementById('suPrev').style.display = '';
     document.getElementById('suSubmit').disabled = false;
   } catch {
-    showToast('❌ Gagal proses gambar');
+    showToast('Foto tidak bisa dibaca');
   }
 }
 window.handleStoryFile = handleStoryFile;
@@ -284,24 +283,16 @@ async function submitStory() {
   const caption = document.getElementById('suCaption').value.trim();
   const btn = document.getElementById('suSubmit');
   btn.disabled = true;
-  btn.textContent = 'Posting...';
+  btn.textContent = 'Mengunggah…';
   try {
-    const r = await fetch('/api/stories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_b64: window.aura.storyUploadB64, caption }),
-    });
-    if (r.ok) {
-      closeStoryUpload();
-      showToast('✨ Story posted!');
-      loadStories();
-    } else {
-      showToast('❌ Gagal');
-    }
+    await api('/api/stories', { json: { image_b64: window.aura.storyUploadB64, caption } });
+    closeStoryUpload();
+    showToast('Story terpasang');
+    loadStories();
   } catch {
-    showToast('❌ Network error');
+    showToast('Gagal mengunggah story');
   }
   btn.disabled = false;
-  btn.textContent = 'Post Story';
+  btn.textContent = 'Pasang story';
 }
 window.submitStory = submitStory;

@@ -1,189 +1,209 @@
 """
 Aura Social — Background AI Schedulers
-Two infinite loops that run in daemon threads:
-  - ai_post_scheduler: AI personas post to timeline (8-15min interval)
-  - ai_story_scheduler: AI personas generate stories (15-25min interval)
+
+One loop (daemon thread) ticks every IDLE_RECHECK_SEC and decides whether an
+AI post or story is due. Intervals, chances and switches are read from
+settings_rt each tick, so changes from /kelola apply within ~30 s without a
+restart. Every run passes the cost brakes in ai_engine/limits.py first.
 """
 import random
-import sqlite3
 import threading
 import time
 
-from config import (
-    DB_PATH,
-    AI_POST_IMAGE_PROB,
-    AI_POST_INTERVAL_MAX,
-    AI_POST_INTERVAL_MIN,
-    AI_STORY_INTERVAL_MAX,
-    AI_STORY_INTERVAL_MIN,
-    AI_STORY_PROB,
-)
-from ai_engine.limits import IDLE_RECHECK_SEC, try_consume_image, user_is_active
-from personas import PERSONAS
-from llm.client import call_llm, generate_image
-from llm.memory import get_persona_memory, pick_fresh_topic, pick_fresh_story_prompt
+import media
+import settings_rt as S
+from ai_engine import limits, usage
 from ai_engine.responder import schedule_responses
+from db import connect
+from llm.client import generate_image
+from llm.generators import photo_caption, post_text, story_caption
+from llm.memory import (get_persona_memory, pick_fresh_story_prompt,
+                        pick_fresh_topic, recent_story_prompts)
+
+IMAGE_STYLE = ", realistic smartphone photo, natural light, no text"
+
+STATE = {
+    "started_at": None,
+    "next_post": None, "next_story": None,
+    "last_post": None, "last_story": None,
+    "blocked": None, "tick": None,
+}
+_lock = threading.Lock()
 
 
-def ai_post_scheduler():
-    """Background loop: AI personas post on timeline periodically, with memory."""
-    time.sleep(120)  # wait 2min after startup
-    while True:
-        # Activity gate: kalau app lagi nggak dibuka, jangan bakar API.
-        if not user_is_active():
-            time.sleep(IDLE_RECHECK_SEC)
-            continue
-        try:
-            p = random.choice(PERSONAS)
-            topic = pick_fresh_topic(p, "")
-            memory = get_persona_memory(p["username"])
-            # Gambar hanya kalau lolos peluang DAN kuota harian masih ada.
-            do_image = random.random() < AI_POST_IMAGE_PROB and try_consume_image()
-            print(
-                f"[AI-Post] {p['username']} {'img+' if do_image else ''}"
-                f"post '{topic}' (memory: {bool(memory)})"
-            )
-            mem_ctx = ""
-            if memory:
-                mem_ctx = (
-                    f"\n\nPOST/STORY TERAKHIR KAMU (JANGAN ulangi topik/isi yg sama!):\n"
-                    f"{memory}\nBuat sesuatu BEDA."
-                )
-            content = call_llm(
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            f"{p['personality']}\nKamu posting di medsos. Topik: {topic}. "
-                            f"1-2 kalimat. Langsung isi, tanpa tanda kutip.{mem_ctx}"
-                        ),
-                    },
-                    {"role": "user", "content": "Buat 1 postingan medsos singkat."},
-                ],
-                p["text_model"],
-                max_tokens=80,
-            )
-            if content:
-                img_b64 = None
-                if do_image:
-                    img_prompt = random.choice(p.get("story_prompts", [topic]))
-                    img_b64 = generate_image(img_prompt)
-                    print(f"[AI-Post] image: {'✅' if img_b64 else '❌'}")
-                conn = sqlite3.connect(DB_PATH)
-                pid = conn.execute(
-                    "INSERT INTO posts(username,content,image_b64,image_desc,post_type,created_at) "
-                    "VALUES(?,?,?,?,?,?)",
-                    (
-                        p["username"],
-                        content,
-                        img_b64,
-                        None,
-                        "image" if img_b64 else "text",
-                        time.time(),
-                    ),
-                ).lastrowid
-                conn.commit()
-                conn.close()
-                print(f"[AI-Post] {p['username']} #{pid}: {content[:50]}")
-                schedule_responses(pid, content, img_b64, poster=p["username"])
-        except Exception as e:
-            print(f"[AI-Post] error: {e}")
-        wait = random.randint(AI_POST_INTERVAL_MIN * 60, AI_POST_INTERVAL_MAX * 60)
-        print(f"[AI-Post] next in {wait // 60}min")
-        time.sleep(wait)
+def _rand_wait(kind):
+    lo, hi = S.get(f"{kind}_interval_min"), S.get(f"{kind}_interval_max")
+    return random.randint(lo * 60, max(lo, hi) * 60)
 
 
-class _SkipCycle(Exception):
-    """Sinyal internal: lewati siklus story ini tanpa dianggap error."""
+def _result(kind, ok, info, persona=None):
+    STATE[f"last_{kind}"] = {"at": time.time(), "ok": ok, "info": info, "persona": persona}
+    print(f"[AI-{kind}] {'✅' if ok else '—'} {persona or ''} {info}", flush=True)
+    return STATE[f"last_{kind}"]
 
 
-def ai_story_scheduler():
-    """Background loop: generate AI stories with FLUX, memory-aware, highlight decision."""
-    time.sleep(60)
-    while True:
-        # Activity gate: idem post scheduler.
-        if not user_is_active():
-            time.sleep(IDLE_RECHECK_SEC)
-            continue
-        try:
-            # Nggak tiap siklus harus jadi story (v1.0: selalu).
-            if random.random() >= AI_STORY_PROB:
-                raise _SkipCycle("prob")
-            # Story = pasti 1 gambar FLUX, jadi cek kuota dulu.
-            if not try_consume_image():
-                raise _SkipCycle("kuota gambar harian habis")
-            p = random.choice(PERSONAS)
-            memory = get_persona_memory(p["username"])
-            mem_captions = memory if memory else ""
-            prompt = pick_fresh_story_prompt(p, mem_captions)
-            print(
-                f"[AI-Story] {p['username']} story: '{prompt[:40]}...' "
-                f"(memory: {bool(memory)})"
-            )
-            img_b64 = generate_image(prompt)
-            if img_b64:
-                # 35% chance to mark as highlight (Sorotan)
-                is_highlight = 1 if random.random() < 0.35 else 0
-                conn = sqlite3.connect(DB_PATH)
-                conn.execute(
-                    "INSERT INTO stories(username,image_b64,caption,is_highlight,created_at) "
-                    "VALUES(?,?,?,?,?)",
-                    (p["username"], img_b64, prompt, is_highlight, time.time()),
-                )
-                conn.commit()
-                conn.close()
-                print(
-                    f"[AI-Story] {p['username']} posted! "
-                    f"highlight={'✨' if is_highlight else '—'}"
-                )
+def ai_post_once():
+    """Satu post AI (kadang dengan gambar). Dipanggil scheduler atau dashboard."""
+    pers = S.active_personas()
+    if not pers:
+        return _result("post", False, "tidak ada persona aktif")
+    p = random.choice(pers)
+    un = p["username"]
+    memory = get_persona_memory(un)
+    img, text = None, None
+    if random.random() < S.get("post_image_prob") and limits.try_consume_image(un):
+        scene = pick_fresh_story_prompt(p, recent_story_prompts(un))
+        img = generate_image(scene + IMAGE_STYLE, persona=un, kind="post_image")
+        if img:
+            # Caption ditulis DARI deskripsi gambar → caption dan foto nyambung.
+            text = photo_caption(p, scene, memory) or ""
+    if not img:
+        text = post_text(p, pick_fresh_topic(p), memory)
+        if not text:
+            return _result("post", False, "model tidak memberi teks yang layak", un)
+    conn = connect()
+    try:
+        pid = conn.execute(
+            "INSERT INTO posts(username,content,image_b64,image_desc,post_type,has_img,created_at) "
+            "VALUES(?,?,NULL,NULL,?,?,?)",
+            (un, text, "image" if img else "text", 1 if img else 0, time.time()),
+        ).lastrowid
+        conn.commit()
+        if img:
+            w, h = media.save("p", pid, img)
+            if w:
+                conn.execute("UPDATE posts SET img_w=?, img_h=? WHERE id=?", (w, h, pid))
             else:
-                print("[AI-Story] image gen failed")
-        except _SkipCycle as s:
-            print(f"[AI-Story] skip: {s}")
+                conn.execute("UPDATE posts SET has_img=0, post_type='text' WHERE id=?", (pid,))
+            conn.commit()
+    finally:
+        conn.close()
+    schedule_responses(pid, text or "foto", img, poster=un)
+    return _result("post", True, f"post #{pid}{' + gambar' if img else ''}", un)
+
+
+def ai_story_once():
+    """Satu story AI (selalu 1 gambar). Peluang & kuota dicek di sini."""
+    if random.random() >= S.get("story_prob"):
+        return _result("story", False, "dilewati (peluang story)")
+    pers = [p for p in S.active_personas() if S.persona(p["username"], "can_image")]
+    if not pers:
+        return _result("story", False, "tidak ada persona yang boleh membuat gambar")
+    p = random.choice(pers)
+    un = p["username"]
+    if not limits.try_consume_image(un):
+        return _result("story", False, "kuota gambar hari ini habis", un)
+    scene = pick_fresh_story_prompt(p, recent_story_prompts(un))
+    img = generate_image(scene + IMAGE_STYLE, persona=un, kind="story_image")
+    if not img:
+        return _result("story", False, "gagal membuat gambar", un)
+    caption = (story_caption(p, scene) or "") if S.get("story_caption") else ""
+    is_highlight = 1 if random.random() < 0.35 else 0
+    conn = connect()
+    try:
+        sid = conn.execute(
+            "INSERT INTO stories(username,image_b64,caption,prompt,is_highlight,has_img,created_at) "
+            "VALUES(?,NULL,?,?,?,1,?)",
+            (un, caption, scene, is_highlight, time.time()),
+        ).lastrowid
+        conn.commit()
+        w, h = media.save("s", sid, img)
+        conn.execute("UPDATE stories SET img_w=?, img_h=? WHERE id=?", (w, h, sid))
+        conn.commit()
+    finally:
+        conn.close()
+    return _result("story", True, f"story #{sid}{' ✨sorotan' if is_highlight else ''}", un)
+
+
+def scheduler_loop():
+    """Satu loop untuk post + story."""
+    STATE["started_at"] = time.time()
+    now = time.time()
+    STATE["next_post"] = now + 120
+    STATE["next_story"] = now + 300
+    seen_version = S.version()
+    time.sleep(20)
+    while True:
+        try:
+            now = time.time()
+            STATE["tick"] = now
+            # Setting berubah: jadwal berikutnya tidak boleh lebih jauh dari interval max baru.
+            if S.version() != seen_version:
+                seen_version = S.version()
+                for kind in ("post", "story"):
+                    cap_at = now + S.get(f"{kind}_interval_max") * 60
+                    if STATE[f"next_{kind}"] and STATE[f"next_{kind}"] > cap_at:
+                        STATE[f"next_{kind}"] = now + _rand_wait(kind)
+            reason = limits.auto_block_reason()
+            STATE["blocked"] = reason
+            if not reason:
+                if S.get("post_enabled") and now >= (STATE["next_post"] or 0):
+                    with _lock:
+                        try:
+                            ai_post_once()
+                        finally:
+                            STATE["next_post"] = time.time() + _rand_wait("post")
+                if S.get("story_enabled") and now >= (STATE["next_story"] or 0) \
+                        and not limits.auto_block_reason():
+                    with _lock:
+                        try:
+                            ai_story_once()
+                        finally:
+                            STATE["next_story"] = time.time() + _rand_wait("story")
         except Exception as e:
-            print(f"[AI-Story] error: {e}")
-        wait = random.randint(AI_STORY_INTERVAL_MIN * 60, AI_STORY_INTERVAL_MAX * 60)
-        print(f"[AI-Story] next in {wait // 60}min")
-        time.sleep(wait)
+            print(f"[Scheduler] error: {e}", flush=True)
+        time.sleep(limits.IDLE_RECHECK_SEC)
 
 
 def cleanup_worker():
-    """Periodic DB hygiene. Non-highlight stories carry big base64 images and
-    only live 24h in the rail — past 48h they're invisible, so drop them.
-    Highlights are permanent and never touched. Also trims the AI timeline so
-    the table can't grow forever; the user's own posts are always kept."""
+    """Periodic DB hygiene. Non-highlight stories only live 24h in the rail;
+    past 48h they're invisible, so drop them (plus their image files).
+    Highlights are permanent. AI timeline is trimmed to the 300 newest posts;
+    the user's own posts are always kept."""
     time.sleep(300)
     while True:
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cutoff = time.time() - 48 * 3600
-            n = conn.execute(
-                "DELETE FROM stories WHERE is_highlight=0 AND created_at<?",
-                (cutoff,),
-            ).rowcount
-            # Keep the 300 most recent AI posts; never delete the user's diary
-            conn.execute(
-                "DELETE FROM posts WHERE username!='me' AND id NOT IN "
-                "(SELECT id FROM posts WHERE username!='me' "
-                " ORDER BY created_at DESC LIMIT 300)"
-            )
-            # Drop orphaned rows left by deleted posts
-            conn.execute("DELETE FROM comments WHERE post_id NOT IN (SELECT id FROM posts)")
-            conn.execute("DELETE FROM likes WHERE post_id NOT IN (SELECT id FROM posts)")
-            conn.commit()
-            conn.close()
-            if n:
-                print(f"[Cleanup] removed {n} expired stories")
+            conn = connect()
+            try:
+                cutoff = time.time() - 48 * 3600
+                sids = [r[0] for r in conn.execute(
+                    "SELECT id FROM stories WHERE is_highlight=0 AND created_at<?", (cutoff,)
+                ).fetchall()]
+                pids = [r[0] for r in conn.execute(
+                    "SELECT id FROM posts WHERE username!='me' AND id NOT IN "
+                    "(SELECT id FROM posts WHERE username!='me' ORDER BY created_at DESC LIMIT 300)"
+                ).fetchall()]
+                if sids:
+                    conn.executemany("DELETE FROM stories WHERE id=?", [(i,) for i in sids])
+                if pids:
+                    conn.executemany("DELETE FROM posts WHERE id=?", [(i,) for i in pids])
+                conn.execute("DELETE FROM comments WHERE post_id NOT IN (SELECT id FROM posts)")
+                conn.execute("DELETE FROM likes WHERE post_id NOT IN (SELECT id FROM posts)")
+                conn.execute("DELETE FROM bookmarks WHERE post_id NOT IN (SELECT id FROM posts)")
+                conn.commit()
+            finally:
+                conn.close()
+            for i in sids:
+                media.delete("s", i)
+            for i in pids:
+                media.delete("p", i)
+            if sids or pids:
+                print(f"[Cleanup] hapus {len(sids)} story kedaluwarsa, {len(pids)} post AI lama")
+            usage.prune()
         except Exception as e:
             print(f"[Cleanup] error: {e}")
         time.sleep(3600)  # hourly
 
 
+_started = [False]
+
+
 def start_background_workers():
     """Spawn daemon threads. Call once from app entrypoint."""
-    threading.Thread(target=ai_post_scheduler, daemon=True).start()
-    threading.Thread(target=ai_story_scheduler, daemon=True).start()
-    threading.Thread(target=cleanup_worker, daemon=True).start()
-    print("  [BG] AI post scheduler started (8-15min interval)")
-    print("  [BG] AI story scheduler started (15-25min interval)")
+    if _started[0]:
+        return
+    _started[0] = True
+    threading.Thread(target=scheduler_loop, daemon=True, name="ai-scheduler").start()
+    threading.Thread(target=cleanup_worker, daemon=True, name="db-cleanup").start()
+    print("  [BG] AI scheduler (post + story) started — atur dari /kelola")
     print("  [BG] DB cleanup worker started (hourly)")

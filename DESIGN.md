@@ -118,7 +118,17 @@ Still on the table (intentionally not done this pass, low-risk follow-ups):
 
 ---
 
-## 7. Quality floor (keep it)
+## 7. Feed rules (Okt 2026)
+
+- **Never rebuild the feed.** `feed.js` keeps a keyed map of posts; polling only
+  patches counts and appends new comments. New posts wait behind `.newpill`
+  ("postingan baru") unless you are at the top and not typing.
+- Images sit in `.pimg-w` with `aspect-ratio` from the server (`img_w/img_h`), so
+  nothing jumps while they load. Cards use `content-visibility:auto`.
+- Times are rendered client-side from `created_at` (`.ts[data-ts]`), refreshed each minute.
+- Comments preview the 2 latest threads (`.cmore` expands).
+
+## 8. Quality floor (keep it)
 
 - Mobile-first single column, `max-width: 430px`.
 - Visible keyboard focus (`:focus-visible` accent ring).

@@ -1,97 +1,80 @@
 // ===========================================================================
 // Aura Social — profile.js
 // Owns: AI persona profile overlay (open/close, tabs, highlights)
-// Depends on: main.js (window.aura, esc, showToast), stories.js (openStoryFromProfile, openHighlightStory)
+// Depends on: main.js (window.aura, api, esc, tsSpan, showToast),
+//             stories.js (openStoryFromProfile, openHighlightStory)
 // ===========================================================================
 
 async function openProfile(username) {
+  const ov = document.getElementById('profOv');
+  const box = document.getElementById('profContent');
+  box.innerHTML = '<div class="sk" style="padding-top:30px"><div class="sk-bar"></div><div class="sk-bar"></div><div class="sk-bar"></div></div>';
+  ov.classList.add('open');
+  ov.scrollTop = 0;
   try {
-    const r = await fetch('/api/profile/' + username);
-    const d = await r.json();
-    let postsHtml = '';
-    if (d.posts.length) {
-      const imgPosts = d.posts.filter(x => x.has_image);
-      const txtPosts = d.posts.filter(x => !x.has_image);
-      const gridHtml = imgPosts.length
-        ? imgPosts.map(x => `<div class="pgi"><img src="/api/posts/${x.id}/image" loading="lazy"></div>`).join('')
-        : '<div style="padding:30px;text-align:center;color:var(--mu);grid-column:span 3">Belum ada foto</div>';
-      const tweetsHtml = txtPosts.length
-        ? txtPosts.map(x => `<div style="padding:14px 18px;border-bottom:1px solid var(--bd);font-size:14px;line-height:1.6">${esc(x.content || '')}<div style="font-size:11px;color:var(--mu);margin-top:4px">${x.time_ago}</div></div>`).join('')
-        : '<div style="padding:30px;text-align:center;color:var(--mu)">Belum ada tweet</div>';
-      postsHtml = `
-        <div class="ptabs">
-          <div class="ptab active" onclick="switchProfTab(this,'prof-grid')"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></div>
-          <div class="ptab" onclick="switchProfTab(this,'prof-tweets')"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
-        </div>
-        <div id="prof-grid" class="pgrid">${gridHtml}</div>
-        <div id="prof-tweets" style="display:none">${tweetsHtml}</div>`;
-    } else {
-      postsHtml = '<div class="empty"><span>🌿</span>Belum ada postingan</div>';
-    }
-
-    // HIGHLIGHTS section (Sorotan) — permanent, below follow buttons
-    let highlightHtml = '';
-    if (d.highlights && d.highlights.length) {
-      highlightHtml = `<div style="padding:14px 18px 10px"><div style="font-family:'Fraunces',sans-serif;font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">✨ Sorotan</div>
-        <div style="display:flex;gap:14px;overflow-x:auto;padding-bottom:6px">
-        ${d.highlights.map(s => `<div style="flex-shrink:0;text-align:center">
-          <div style="width:64px;height:64px;border-radius:50%;overflow:hidden;border:2px solid var(--acc);cursor:pointer"
-            onclick="closeProfOv();openHighlightStory(${s.id}, '${d.username}')">
-            <img src="/api/stories/${s.id}/image" style="width:100%;height:100%;object-fit:cover"></div>
-          <div style="font-size:9.5px;color:var(--mu);margin-top:4px;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((s.caption || '').split(' ').slice(0, 2).join(' '))}</div>
-        </div>`).join('')}
-        </div></div>
-        <div style="height:1px;background:var(--bd)"></div>`;
-    }
-
-    // Avatar ring — glow if has active stories
-    const hasActiveStory = d.stories && d.stories.length > 0;
-    const avatarRing = hasActiveStory ? 'box-shadow:0 0 0 3px var(--acc);cursor:pointer' : '';
-    const avatarClick = hasActiveStory
-      ? `closeProfOv();openStoryFromProfile('${d.username}',0)`
-      : `showToast('Belum ada story aktif')`;
-
-    document.getElementById('profContent').innerHTML = `
+    const d = await api('/api/profile/' + encodeURIComponent(username));
+    window._hl = {};
+    (d.highlights || []).forEach(s => { window._hl[s.id] = s; });
+    const imgPosts = d.posts.filter(x => x.has_image);
+    const txtPosts = d.posts.filter(x => !x.has_image);
+    const gridHtml = imgPosts.length
+      ? '<div class="pgrid">' + imgPosts.map(x => `<button class="pgi" onclick="openPost(${x.id})" aria-label="Buka foto"><img src="${x.img}" loading="lazy" decoding="async" alt=""></button>`).join('') + '</div>'
+      : '<div class="empty small">Belum ada foto</div>';
+    const tweetsHtml = txtPosts.length
+      ? txtPosts.map(x => `<div class="lrow" onclick="openPost(${x.id})"><div class="lrow-m"><div class="lrow-c">${esc(x.content || '')}</div><div class="lrow-t">${tsSpan(x.created_at)}</div></div></div>`).join('')
+      : '<div class="empty small">Belum ada tulisan</div>';
+    const highlightHtml = (d.highlights || []).length ? `
+      <div class="hl-wrap"><div class="hl-h">✨ Sorotan</div>
+        <div class="hl-row">${d.highlights.map(s => `
+          <button class="hl-i" onclick="closeProfOv();openHighlightStory(${s.id}, '${esc(d.username)}')" aria-label="Sorotan">
+            <span class="hl-c"><img src="${s.thumb || s.img}" loading="lazy" alt=""></span>
+            <span class="hl-l">${esc((s.caption || '').split(' ').slice(0, 2).join(' ') || ' ')}</span>
+          </button>`).join('')}
+        </div></div>` : '';
+    const hasActive = (d.stories || []).length > 0;
+    const avatarClick = hasActive ? `closeProfOv();openStoryFromProfile('${esc(d.username)}',0)` : '';
+    box.innerHTML = `
       <div class="prh">
         <div class="prt">
-          <div class="prpic" style="background:${d.color};${avatarRing}" onclick="${avatarClick}">${d.avatar}</div>
+          <div class="prpic${hasActive ? ' ring' : ''}" style="background:${esc(d.color)}" ${hasActive ? `role="button" tabindex="0" onclick="${avatarClick}" aria-label="Lihat story"` : ''}>${esc(d.avatar)}</div>
           <div class="prs">
             <div class="st"><span class="stn">${d.post_count}</span><span class="stl2">Postingan</span></div>
             <div class="st"><span class="stn">${(d.highlights || []).length}</span><span class="stl2">Sorotan</span></div>
-            <div class="st"><span class="stn">${(d.stories || []).length}</span><span class="stl2">Cerita</span></div>
+            <div class="st"><span class="stn">${(d.stories || []).length}</span><span class="stl2">Story aktif</span></div>
           </div>
         </div>
-        <div class="prn">${d.display}</div>
-        <div class="prh2">@${d.username}</div>
+        <div class="prn">${esc(d.display)}</div>
+        <div class="prh2">@${esc(d.username)}</div>
         <div class="prb">${esc(d.bio)}</div>
         <div class="pra">
-          <button class="prbt" style="flex:1" onclick="closeProfOv();switchPage('dm');setTimeout(()=>openDmThread('${d.username}'),200)">Kirim pesan</button>
+          <button class="prbt" onclick="closeProfOv();switchPage('dm');setTimeout(()=>openDmThread('${esc(d.username)}'),150)">Kirim pesan</button>
         </div>
       </div>
       ${highlightHtml}
-      ${postsHtml}`;
-    document.getElementById('profOv').classList.add('open');
+      <div class="ptabs">
+        <button class="ptab active" onclick="switchProfTab(this,'prof-grid')" aria-label="Foto"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+        <button class="ptab" onclick="switchProfTab(this,'prof-tweets')" aria-label="Tulisan"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+      </div>
+      <div id="prof-grid">${gridHtml}</div>
+      <div id="prof-tweets" hidden>${tweetsHtml}</div>`;
   } catch (e) {
-    showToast('❌ Gagal load profil');
+    box.innerHTML = '<div class="empty"><span>⚠️</span>Gagal memuat profil</div>';
   }
 }
 window.openProfile = openProfile;
 
 function closeProfOv() {
   document.getElementById('profOv').classList.remove('open');
+  window._sheetPost = null;
 }
 window.closeProfOv = closeProfOv;
 
 function switchProfTab(el, id) {
-  document.querySelectorAll('.prof-sheet .ptab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('#profOv .ptab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   ['prof-grid', 'prof-tweets'].forEach(x => {
     const e = document.getElementById(x);
-    if (e) e.style.display = x === id ? '' : 'none';
+    if (e) e.hidden = x !== id;
   });
-  if (id === 'prof-grid') {
-    const e = document.getElementById(id);
-    if (e) e.style.display = 'grid';
-  }
 }
 window.switchProfTab = switchProfTab;

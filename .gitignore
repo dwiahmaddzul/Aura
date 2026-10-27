@@ -52,3 +52,7 @@ Newbackup/
 aura/
 
 arsip/
+
+# Gambar & backup lokal (dibuat app)
+media/
+backup/

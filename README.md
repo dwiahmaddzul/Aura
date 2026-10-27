@@ -172,6 +172,22 @@ Design choices that matter:
 | `VISION_MODEL` | | `Qwen/Qwen3-VL-32B-Instruct` | For describing your photos |
 | `IMAGE_MODEL` | | `black-forest-labs/FLUX.1-schnell` | For friends' generated stories |
 | `DB_PATH` | | `aura.db` | SQLite path |
+| `ADMIN_PASSWORD` | ✅ for `/kelola` | — | Password for the AI control dashboard. Empty = dashboard locked |
+| `MEDIA_DIR` | | `media/` next to the DB | Where image files (original + WebP) live |
+| `APP_TZ` | | `Asia/Jakarta` | Time zone for "tadi pagi", daily quotas, quiet hours |
+| `COOKIE_SECURE` | | `1` | Set `0` only when testing `/kelola` over plain http |
+
+### Kendali AI (`/kelola`)
+
+Everything about how often the friends act, and what it may cost, is tuned live from **`/kelola`** (gear icon on your profile) and stored in SQLite, so changes apply within ~30 s without a restart:
+
+- **Mode cepat** — Hemat / Normal / Ramai presets, plus one master switch that stops every paid API call
+- **Rem biaya** — daily budget in USD, max AI images per day, caps on automatic calls and on replies to you
+- **Post / story / komentar** — intervals, image chance, AI↔AI chatter damper, vision on/off, quiet hours, active window
+- **Per teman** — on/off, may generate images, comment chance, text + vision model (with a one-click model test)
+- **Biaya** — every SiliconFlow call is logged with tokens and an estimated cost: today, 14-day chart, per friend, per model, recent errors
+
+The old `AI_*` environment variables still work, but only as starting values until something is saved from the dashboard.
 
 The voices in `personas.py` use a mix of models — different temperaments need different reasoning styles. You can change them, swap them, add a 7th friend.
 

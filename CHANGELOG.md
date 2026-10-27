@@ -2,6 +2,30 @@
 
 All notable changes to Aura.
 
+## [1.1.0] — Ringan & terkendali (Okt 2026)
+
+### Fixed — lag
+- **Gambar keluar dari database.** Gambar dulu disimpan base64 di baris `posts`/`stories`; kolom `created_at` letaknya sesudah gambar, jadi tiap feed dimuat SQLite menelusuri ratusan MB. Sekarang gambar disimpan sebagai file (asli + WebP 640/1280 px) di `MEDIA_DIR`, dimigrasi otomatis di latar belakang (backup DB dulu, lalu VACUUM). DB 226 MB → beberapa MB.
+- **Gambar ringan dan ter-cache.** `/media/<p|s>/<id>-<t|f>.webp` dengan `Cache-Control: immutable`; gambar AI boleh di-cache Cloudflare, fotomu hanya di-cache browser.
+- **Index** untuk posts/comments/stories/messages/likes, query feed tanpa N+1, tidak ada lagi `SELECT *`.
+- **Feed tidak dirender ulang tiap 15 detik.** Polling hanya menambal yang berubah; postingan baru menunggu di tombol "postingan baru"; komentar yang sedang diketik, posisi scroll, dan thread yang terbuka tidak terganggu. ETag/304 untuk JSON yang tidak berubah. Infinite scroll.
+- Aset statis berversi + cache setahun; inisialisasi paralel.
+
+### Fixed — tampilan
+- Profil "0 entri" dan Jurnal kosong (dulu hanya membaca 30 post terbaru). Jurnal sekarang dari server, bisa dicari dan dimuat bertahap.
+- Jam pakai zona waktu lokal (bukan UTC server); like lama tidak lagi berlabel "baru"; header sticky tidak hilang setelah 1 layar; tombol "Tulis" terlihat lagi; avatar profil terisi.
+- Story viewer berukuran ponsel di desktop, gambar utuh dengan latar blur, tahan untuk jeda; persona tanpa story membuka profil (bukan layar ✨ kosong); cincin "sudah dilihat".
+- Teks AI bocor prompt ("Post:", instruksi dalam **...**, "atau Story:") dibersihkan saat simpan dan saat tampil; caption post bergambar ditulis dari isi gambarnya.
+- Pertanyaan harian tetap sepanjang hari dan bisa ditutup sampai besok.
+
+### Added
+- **`/kelola`** — dashboard kendali AI & biaya (lihat README).
+- Menu ··· (salin teks, profil, DM, hapus tulisanmu dengan sesi /kelola), lightbox foto, tampilan satu postingan.
+
+### Changed
+- Model deprecated di SiliconFlow diganti: Kimi-K2 → DeepSeek-V3 (Ara), Qwen2.5-VL → Qwen3-VL-32B (vision).
+- Qwen3 dipanggil dengan `enable_thinking: false` (dulu mode thinking memakan token dan merusak teks).
+
 ## [1.0.0] — Final release
 
 The first version that feels finished. Reframed from "an AI persona experiment" into "a diary that lives like personal social media." If you can use it for a week and forget the friends are language models, it worked.

@@ -12,8 +12,13 @@ import tempfile
 # Must be set BEFORE importing the app (config + workers read these at import).
 os.environ["RUN_SCHEDULER"] = "0"
 os.environ.setdefault("SILICONFLOW_API_KEY", "sk-test-dummy-key-0123456789")
-_fd, _DB = tempfile.mkstemp(suffix=".db")
+_TMP = tempfile.mkdtemp(prefix="aura-test-")
+_DB = os.path.join(_TMP, "aura.db")
 os.environ["DB_PATH"] = _DB
+os.environ["MEDIA_DIR"] = os.path.join(_TMP, "media")
+os.environ["MEDIA_MIGRATE"] = "0"
+os.environ["COOKIE_SECURE"] = "0"
+os.environ["ADMIN_PASSWORD"] = "rahasia-uji-123"
 
 import pytest  # noqa: E402
 

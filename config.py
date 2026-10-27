@@ -62,34 +62,47 @@ _default_db = str(Path(_vol) / "aura.db") if _vol else "aura.db"
 DB_PATH = os.environ.get("DB_PATH", _default_db)
 
 # ── AI cost controls ──────────────────────────────────────────────────────
-# Semua bisa dioverride via env / tab Variables di Railway.
-# Default di bawah SENGAJA lebih hemat daripada perilaku v1.0.
-# Interval dalam MENIT.
-AI_POST_INTERVAL_MIN  = _env_int("AI_POST_INTERVAL_MIN", 10)    # v1.0: 8
-AI_POST_INTERVAL_MAX  = _env_int("AI_POST_INTERVAL_MAX", 20)    # v1.0: 15
-AI_STORY_INTERVAL_MIN = _env_int("AI_STORY_INTERVAL_MIN", 30)   # v1.0: 15
-AI_STORY_INTERVAL_MAX = _env_int("AI_STORY_INTERVAL_MAX", 60)   # v1.0: 25
-# Peluang post AI menyertakan gambar FLUX (v1.0: 0.30).
-AI_POST_IMAGE_PROB    = _env_float("AI_POST_IMAGE_PROB", 0.15)
-# Peluang satu siklus story benar-benar generate (v1.0: selalu / 1.0).
-AI_STORY_PROB         = _env_float("AI_STORY_PROB", 0.5)
-# Kuota gambar FLUX per hari, semua sumber. 0 = tanpa gambar AI sama sekali.
-AI_IMAGE_DAILY_LIMIT  = _env_int("AI_IMAGE_DAILY_LIMIT", 20)
-# Scheduler hanya jalan kalau app dibuka dalam N menit terakhir. 0 = 24/7.
-AI_ACTIVE_WINDOW_MIN  = _env_int("AI_ACTIVE_WINDOW_MIN", 240)
-# Maks persona yang komentar per post (target balasan tidak kena cap).
-AI_COMMENT_MAX        = _env_int("AI_COMMENT_MAX", 3)
-# Peredam obrolan AI↔AI: pengali reply_prob saat yang posting bukan 'me'.
-AI_COMMENT_ON_AI_SCALE = _env_float("AI_COMMENT_ON_AI_SCALE", 0.5)
+# Sejak Okt 2026 semua knob AI diatur dari dashboard /kelola dan disimpan di
+# SQLite (settings_rt.py), berlaku tanpa restart. Env var di bawah HANYA
+# dipakai sebagai nilai awal kalau di-set eksplisit; begitu disimpan dari
+# dashboard, nilai di database yang menang.
+_ENV_AI_KEYS = {
+    # env var              -> settings key, tipe
+    "AI_POST_INTERVAL_MIN":   ("post_interval_min", int),
+    "AI_POST_INTERVAL_MAX":   ("post_interval_max", int),
+    "AI_STORY_INTERVAL_MIN":  ("story_interval_min", int),
+    "AI_STORY_INTERVAL_MAX":  ("story_interval_max", int),
+    "AI_POST_IMAGE_PROB":     ("post_image_prob", float),
+    "AI_STORY_PROB":          ("story_prob", float),
+    "AI_IMAGE_DAILY_LIMIT":   ("image_daily_limit", int),
+    "AI_ACTIVE_WINDOW_MIN":   ("active_window_min", int),
+    "AI_COMMENT_MAX":         ("comment_max", int),
+    "AI_COMMENT_ON_AI_SCALE": ("comment_on_ai_scale", float),
+}
+ENV_AI_OVERRIDES = {}
+for _env, (_key, _typ) in _ENV_AI_KEYS.items():
+    _raw = os.environ.get(_env, "").strip()
+    if _raw:
+        try:
+            ENV_AI_OVERRIDES[_key] = _typ(_raw)
+        except ValueError:
+            print(f"⚠️  {_env} bukan angka, diabaikan")
 
-# Sanity clamps
-AI_POST_INTERVAL_MIN  = max(1, AI_POST_INTERVAL_MIN)
-AI_POST_INTERVAL_MAX  = max(AI_POST_INTERVAL_MIN, AI_POST_INTERVAL_MAX)
-AI_STORY_INTERVAL_MIN = max(1, AI_STORY_INTERVAL_MIN)
-AI_STORY_INTERVAL_MAX = max(AI_STORY_INTERVAL_MIN, AI_STORY_INTERVAL_MAX)
-AI_POST_IMAGE_PROB    = min(max(AI_POST_IMAGE_PROB, 0.0), 1.0)
-AI_STORY_PROB         = min(max(AI_STORY_PROB, 0.0), 1.0)
-AI_COMMENT_ON_AI_SCALE = min(max(AI_COMMENT_ON_AI_SCALE, 0.0), 1.0)
+# ── Dashboard /kelola & misc ──────────────────────────────────────────────
+# Password dashboard. Kosong = dashboard terkunci total.
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
+# Kunci tanda tangan cookie sesi. Kosong = dibuat acak sekali dan disimpan di DB.
+SECRET_KEY = os.environ.get("SECRET_KEY", "").strip()
+# Cookie sesi hanya lewat HTTPS (set 0 untuk uji lokal via http).
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1").strip() != "0"
+# Zona waktu default (bisa diganti dari dashboard).
+APP_TZ = os.environ.get("APP_TZ", "Asia/Jakarta").strip() or "Asia/Jakarta"
+# Folder gambar. Default: folder "media" di sebelah file DB (ikut volume).
+MEDIA_DIR = os.environ.get("MEDIA_DIR", "").strip() or str(
+    Path(DB_PATH).resolve().parent / "media"
+)
+# Pindahkan gambar lama (base64 di DB) ke file WebP di latar belakang.
+MEDIA_MIGRATE = os.environ.get("MEDIA_MIGRATE", "1").strip() != "0"
 
 if not SILICONFLOW_API_KEY:
     print(
