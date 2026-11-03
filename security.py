@@ -5,11 +5,14 @@ Server-side input caps + lightweight in-process per-IP rate limiting.
 The client also enforces limits (maxlength, image resize), but the server must
 never trust the client — these routes are publicly reachable on the live demo.
 """
+import os
 import time
 from collections import defaultdict, deque
 from functools import wraps
 
 from flask import jsonify, request
+
+import config  # noqa: F401  (memastikan .env sudah dimuat sebelum env dibaca)
 
 # ── input caps ──
 MAX_POST = 2000        # chars
@@ -37,10 +40,21 @@ _hits = defaultdict(deque)
 _last_prune = [0.0]
 
 
+# Jumlah reverse proxy tepercaya di depan app (Railway = 1, Cloudflare+Railway = 2,
+# langsung tanpa proxy = 0). Nilai X-Forwarded-For paling KIRI dikirim oleh klien
+# sendiri dan bisa dipalsukan, jadi yang dipakai adalah entri ke-N dari KANAN,
+# yaitu alamat yang ditambahkan oleh proxy tepercaya.
+try:
+    TRUSTED_PROXY_HOPS = max(0, int(os.environ.get("TRUSTED_PROXY_HOPS", "1")))
+except ValueError:
+    TRUSTED_PROXY_HOPS = 1
+
+
 def _client_ip():
-    fwd = request.headers.get("X-Forwarded-For", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    if TRUSTED_PROXY_HOPS:
+        parts = [p.strip() for p in request.headers.get("X-Forwarded-For", "").split(",") if p.strip()]
+        if len(parts) >= TRUSTED_PROXY_HOPS:
+            return parts[-TRUSTED_PROXY_HOPS]
     return request.remote_addr or "unknown"
 
 
@@ -48,7 +62,7 @@ def rate_limit(max_calls=20, window=60):
     """Decorator: allow `max_calls` per `window` seconds per client IP.
 
     Designed for write endpoints on the public demo. Returns HTTP 429 when
-    exceeded. Behind a PaaS proxy, honours X-Forwarded-For.
+    exceeded. Behind a PaaS proxy, honours X-Forwarded-For (see TRUSTED_PROXY_HOPS).
     """
     def deco(fn):
         @wraps(fn)

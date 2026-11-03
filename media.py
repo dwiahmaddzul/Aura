@@ -30,6 +30,9 @@ from config import DB_PATH, MEDIA_DIR
 
 try:
     from PIL import Image, ImageOps
+    # Tolak "decompression bomb": PNG kecil (<2 MB) bisa mengembang jadi
+    # ratusan juta piksel dan menghabiskan RAM. 50 MP masih cukup untuk foto HP.
+    Image.MAX_IMAGE_PIXELS = 50_000_000
     HAVE_PIL = True
 except Exception:  # pragma: no cover - Pillow selalu ada di image Docker
     HAVE_PIL = False

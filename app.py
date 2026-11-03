@@ -84,6 +84,18 @@ def create_app():
             mark_activity()
 
     @app.after_request
+    def _security_headers(resp):
+        h = resp.headers
+        h.setdefault("X-Content-Type-Options", "nosniff")
+        h.setdefault("X-Frame-Options", "DENY")
+        h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        # CSP minimal yang tidak memutus handler onclick inline di frontend:
+        # cegah clickjacking, plugin, dan pembajakan <base>.
+        h.setdefault("Content-Security-Policy",
+                     "frame-ancestors 'none'; object-src 'none'; base-uri 'self'")
+        return resp
+
+    @app.after_request
     def _cache_policy(resp):
         # GET JSON API: boleh disimpan browser tapi wajib divalidasi ulang.
         # ETag → polling yang isinya tidak berubah dijawab 304 tanpa isi

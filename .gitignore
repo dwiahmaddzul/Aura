@@ -2,8 +2,12 @@
 
 # Secrets
 .env
-.env.local
+.env.*
+!.env.example
 *.key
+*.pem
+*.p12
+API.txt
 
 # Database
 *.db
@@ -50,6 +54,7 @@ desktop.ini
 # Local backups
 Newbackup/
 aura/
+*copy*.py
 
 arsip/
 

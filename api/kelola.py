@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from flask import Blueprint, jsonify, redirect, render_template, request, send_file, session
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, send_file, session
 
 import media
 import settings_rt as S
@@ -29,7 +29,12 @@ _storage_cache = {"t": 0.0, "v": None}
 
 
 def _pw_tag():
-    return hashlib.sha256(("aura-kelola:" + ADMIN_PASSWORD).encode()).hexdigest()[:20]
+    # Cookie sesi Flask hanya ditandatangani, tidak dienkripsi: isinya bisa dibaca
+    # siapa pun yang memegang cookie. Karena itu tag diturunkan lewat HMAC dengan
+    # secret_key, bukan hash polos password (yang bisa di-brute-force offline).
+    # Ganti password → tag berubah → semua sesi lama otomatis keluar.
+    key = (current_app.secret_key or "").encode()
+    return hmac.new(key, ("aura-kelola:" + ADMIN_PASSWORD).encode(), hashlib.sha256).hexdigest()[:32]
 
 
 def _authed():
@@ -81,6 +86,8 @@ def api_login():
 
 @bp.route("/api/kelola/logout", methods=["POST"])
 def api_logout():
+    if request.headers.get("X-Kelola") != "1":
+        return jsonify({"error": "header X-Kelola wajib"}), 400
     session.pop("kelola", None)
     return jsonify({"ok": True})
 

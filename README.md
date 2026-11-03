@@ -7,225 +7,148 @@
 *Tempat curhatmu sendiri — yang nggak terasa seperti curhat.*
 
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
-![Flask](https://img.shields.io/badge/flask-3.0-black.svg)
+![Flask](https://img.shields.io/badge/flask-3.x-black.svg)
+![SQLite](https://img.shields.io/badge/db-SQLite-lightgrey.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Status](https://img.shields.io/badge/status-active-brightgreen.svg)
 
 </div>
 
 ---
 
-## 💭 Why Aura
+## 💭 Tentang proyek
 
-Journaling apps work — research consistently shows reduced anxiety, better self-awareness, stronger habit formation. But they share a problem: **they feel like homework**. A blank page. A prompt that demands an essay. A streak counter that guilts you on day 4.
+Aplikasi jurnal biasanya terasa seperti PR: halaman kosong, prompt yang menuntut esai,
+streak yang bikin merasa bersalah. **Aura** membalik pendekatannya. Bentuknya seperti
+Instagram/Twitter yang sudah biasa dibuka tanpa mikir, tapi diarahkan ke dalam: kamu satu-satunya
+manusia di sana, dan enam "teman" AI dengan kepribadian berbeda ikut mengomentari, me-like,
+membuat story, dan membalas DM.
 
-Aura takes the opposite approach. It uses a form-factor you already open without thinking — Instagram, Twitter — and turns it inward. You're the only human here. The feed is yours. Six familiar voices keep you company, react to what you write, ask how your day's going. Some days you post a photo. Some days a single sentence. Some days you DM one of them at 1 AM about something you haven't told anyone.
+Proyek ini adalah aplikasi web full-stack satu orang: backend Flask modular, SQLite,
+worker AI berjalan di latar, frontend vanilla JS tanpa build step, plus dashboard
+pengendali biaya AI.
 
-It's not a productivity tool. It's a small, warm room.
+## ✨ Fitur
 
----
+**Ruang pribadi**
+- 📝 Post teks/foto dengan tag mood · 🙏 catatan syukur (komentar AI bisa dimatikan)
+- 📸 Story 24 jam + Sorotan (highlight) · 📓 Jurnal per bulan dengan pencarian
+- 📅 Throwback 7/30/365 hari · 📊 Heatmap mood 30 hari · 🔖 Bookmark
 
-## ✨ What's inside
+**Teman AI**
+- 💬 Enam persona lintas model (Qwen, DeepSeek, Kimi, dll.) dengan suara & peluang balas berbeda
+- 🧵 Balasan berutas di komentar · 💌 DM 1-on-1 dengan memori percakapan
+- 🖼️ Persona bisa "melihat" foto (model vision) dan membuat gambar (FLUX)
+- 🌅 Pertanyaan harian sesuai waktu (pagi/siang/sore/malam)
 
-### Your space
-- 📝 **Posts & feed** — text, photos, a mood tag — like Twitter for one
-- 🙏 **Gratitude notes** — a separate writing mode; you choose whether your circle responds
-- 📸 **Stories** that disappear in 24h
-- 📓 **Jurnal** — every entry you've written, grouped by month and searchable
-- 📅 **Throwbacks** — gentle reminders of who you were 7, 30, 365 days ago
-- 📊 **Insights** — 30-day mood heatmap with patterns you wouldn't notice yourself
-- 🔖 **Bookmark** moments worth coming back to
+**Kendali & operasional (`/kelola`)**
+- Preset Hemat / Normal / Ramai, saklar utama yang menghentikan semua panggilan berbayar
+- Rem biaya: anggaran harian USD, kuota gambar, batas panggilan otomatis & interaktif
+- Log setiap panggilan API (token & estimasi biaya) per hari, per persona, per model
+- Backup database, VACUUM, migrasi gambar lama ke WebP
 
-### The friends
-- 💬 **They comment, like, and post** — each with a distinct voice
-- 🧵 **Reply to their comments** — short threads, and they reply back in-thread
-- 💌 **DM them** anytime, 1-on-1, with thread memory
-- 🟢 **Pulse-online indicators** — they feel present, not on-demand
-- 🌅 **Daily check-in** — "Pagi! warna apa yg pertama lo liat tadi?"
+## 🏗️ Arsitektur
 
-### Quality of life
-- ⌨️ **Keyboard shortcuts** — `/` search, `n` new post, `Esc` close, `h` home
-- 🎨 **Time-aware prompts** — pagi, siang, sore, malam each get different vibes
-- 🌃 **Dark by default** — built for late-night writing
-- 💾 **All local** — SQLite single-file. No cloud, no telemetry, no account
-- 🖼️ **Auto image resize** — drop in a 12MB photo, it becomes 1080px before storing
+```
+aura/
+├── app.py            # Flask app factory, header keamanan, cache policy
+├── config.py         # loader .env tanpa dependensi + semua env var
+├── security.py       # batas input + rate limit per-IP (sliding window)
+├── settings_rt.py    # setting AI yang bisa diubah live (disimpan di SQLite)
+├── db.py             # skema + migrasi SQLite (WAL)
+├── media.py          # penyimpanan gambar: file asli + varian WebP ter-cache
+├── personas.py       # definisi 6 teman AI
+├── llm/              # klien SiliconFlow, generator teks/gambar, memori, pembersih output
+├── ai_engine/        # scheduler post/story, responder, rem biaya, pencatat pemakaian
+├── api/              # blueprint: posts, stories, profiles, dm, me, notif/search, media, kelola
+├── templates/        # index.html (SPA shell) + kelola.html (dashboard)
+├── static/           # CSS bertoken + modul JS vanilla
+└── tests/            # pytest: smoke test endpoint + upgrade/migrasi
+```
 
----
+Keputusan desain:
+- **Tanpa build step JS** — edit lalu refresh.
+- **SQLite satu file** — backup cukup salin file (atau tombol backup di `/kelola`).
+- **Thread latar, bukan Celery** — bisa dideploy di mana pun Python jalan.
+- **Polling + ETag** — respons yang tidak berubah dijawab `304` tanpa isi.
 
-## 🚀 Quick Start
+## 🚀 Menjalankan secara lokal
 
-### Prerequisites
-- Python 3.10+
-- A [SiliconFlow](https://siliconflow.com) API key (free tier is enough)
-
-### Setup
+Prasyarat: Python 3.10+ dan API key [SiliconFlow](https://siliconflow.com).
 
 ```bash
-# 1. Clone
-git clone https://github.com/YOUR_USERNAME/aura.git
+git clone https://github.com/dwiahmaddzul/Aura.git
 cd aura
-
-# 2. Install
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env      # Windows: Copy-Item .env.example .env
+```
 
-# 3. Configure
-cp .env.example .env
-# Open .env, paste your SILICONFLOW_API_KEY
+Isi minimal di `.env`:
 
-# 4. Run
+```ini
+SILICONFLOW_API_KEY=sk-...        # kunci milikmu sendiri
+ADMIN_PASSWORD=<password-acak>    # untuk /kelola
+COOKIE_SECURE=0                   # hanya untuk uji lokal via http
+TRUSTED_PROXY_HOPS=0              # akses langsung tanpa reverse proxy
+```
+
+Jalankan:
+
+```bash
 python app.py
 ```
 
-Open `http://localhost:5000` and start writing.
+Buka `http://localhost:5000`. Database dibuat otomatis saat pertama kali jalan.
 
-### Windows (PowerShell)
-
-```powershell
-git clone https://github.com/YOUR_USERNAME/aura.git
-cd aura
-pip install -r requirements.txt
-Copy-Item .env.example .env
-notepad .env
-python app.py
-```
-
-The DB seeds itself the first time. The first time you open the app, a small welcome banner appears — feel free to dismiss it and start writing whatever's in your head.
-
----
-
-## ⌨️ Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `n` | New post |
-| `/` | Focus search |
-| `h` | Home |
-| `Esc` | Close any open modal/thread |
-
----
-
-## 🧪 Tests & hardening
+### Tes
 
 ```bash
 pip install -r requirements-dev.txt
 pytest -q
 ```
 
-A smoke suite covers the core endpoints plus the parts most likely to break:
-threaded-comment nesting, gratitude entry typing, input caps, and the rate limiter.
+### Deploy (Railway / PaaS)
 
-Because the demo is publicly reachable, every write endpoint is defended on the
-server — not just in the UI:
+`Procfile` sudah menjalankan Gunicorn (`--workers 1 --threads 4`; satu worker karena
+scheduler & rate limit ada di memori proses). Set env `SILICONFLOW_API_KEY`,
+`ADMIN_PASSWORD`, dan `SECRET_KEY` di dashboard penyedia, pasang volume untuk
+`DB_PATH`, dan sesuaikan `TRUSTED_PROXY_HOPS` dengan jumlah proxy di depan app.
 
-- **Input caps** — post / comment / DM length and image-payload size are clamped
-  server-side (`security.py`), never trusting the client.
-- **Rate limiting** — per-IP sliding window on all writes (HTTP 429 when exceeded).
-- **DB hygiene** — a background worker drops expired non-highlight stories and trims
-  the AI timeline so SQLite can't grow without bound; your own entries are always kept.
-- **Safe by default** — every query is parameterized, all rendered content is HTML-escaped.
+## 🔧 Konfigurasi
 
----
+Daftar lengkap ada di [`.env.example`](.env.example). Yang paling penting:
 
-## 🏗️ Architecture
+| Variabel | Wajib | Default | Keterangan |
+|---|---|---|---|
+| `SILICONFLOW_API_KEY` | ✅ | — | Kunci API penyedia model |
+| `ADMIN_PASSWORD` | ✅ untuk `/kelola` | — | Kosong = dashboard terkunci |
+| `SECRET_KEY` | disarankan | acak, disimpan di DB | Kunci tanda tangan cookie sesi |
+| `COOKIE_SECURE` | | `1` | `0` hanya untuk uji lokal via http |
+| `TRUSTED_PROXY_HOPS` | | `1` | Jumlah reverse proxy tepercaya (rate limit) |
+| `DB_PATH` | | `aura.db` | Lokasi SQLite |
+| `MEDIA_DIR` | | `media/` di sebelah DB | Lokasi file gambar |
+| `APP_TZ` | | `Asia/Jakarta` | Zona waktu label & kuota harian |
+| `TEXT_MODEL` / `VISION_MODEL` / `IMAGE_MODEL` | | lihat `.env.example` | Model default |
 
-```
-aura/
-├── app.py                    # Flask factory + entrypoint
-├── config.py                 # .env loader (no dotenv dep)
-├── personas.py               # 6 friend definitions
-├── db.py                     # SQLite schema + migrations
-├── security.py               # Input caps + per-IP rate limiting
-├── utils.py                  # Time labels (tadi pagi, semalam, etc.)
-├── llm/                      # Outbound calls to language models
-├── ai_engine/                # Background workers — posts, stories, AI reactions, DB cleanup
-├── api/
-│   ├── posts.py              # Feed, comments + threaded replies, likes, bookmarks
-│   ├── stories.py            # Stories (24h) + highlights
-│   ├── profiles.py           # Friend profile data
-│   ├── dm.py                 # DM threads with memory
-│   ├── me.py                 # Profile, throwback, mood, prompts
-│   └── notif_search.py       # Notifications + search
-├── tests/                    # pytest smoke suite
-├── templates/index.html      # Single-page shell
-└── static/
-    ├── css/main.css          # tokenized "dusk journal" design system
-    └── js/                   # 7 vanilla modules, no build step
-```
+## 🛡️ Keamanan
 
-Design choices that matter:
-- **No JS build step.** Vanilla JS, edit and refresh.
-- **SQLite single file.** Backup is `cp aura.db backup.db`.
-- **Background threads, not Celery.** Trivially deployable anywhere Python runs.
-- **Polling, not websockets.** Simpler, fine for one user.
+- **Rahasia hanya lewat environment.** Tidak ada kunci di kode; `.env` di-`.gitignore`.
+- **SQL terparametrisasi.** Nama tabel dinamis hanya berasal dari whitelist internal.
+- **Output di-escape.** Semua teks pengguna & AI melewati `esc()` sebelum masuk DOM;
+  Jinja autoescape aktif.
+- **Dashboard terlindungi.** Password dibandingkan constant-time, login di-rate-limit,
+  cookie sesi `HttpOnly` + `Secure` + `SameSite=Strict`, dan setiap POST wajib header
+  `X-Kelola` (tidak bisa dikirim lintas situs tanpa CORS) sebagai pertahanan CSRF.
+- **Batas di server.** Panjang teks & ukuran gambar dibatasi, rate limit per IP pada
+  endpoint tulis, perlindungan *decompression bomb* pada gambar.
+- **Header keamanan.** `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, CSP `frame-ancestors 'none'`.
 
----
+> ⚠️ **Model ancaman:** Aura dirancang untuk **satu pengguna**. Layar kode di halaman
+> depan hanyalah *soft gate* untuk demo, **bukan autentikasi**. Siapa pun yang tahu URL
+> deployment bisa membaca dan menulis feed/DM. Untuk dipakai sebagai jurnal sungguhan,
+> jalankan di `localhost` atau pasang autentikasi (mis. reverse proxy dengan basic auth /
+> Cloudflare Access) di depannya. Catatan audit lengkap: [`AUDIT.md`](AUDIT.md).
 
-## 🔧 Configuration
+## 📄 Lisensi
 
-`.env` knobs:
-
-| Variable | Required | Default | Notes |
-|----------|----------|---------|-------|
-| `SILICONFLOW_API_KEY` | ✅ | — | Get one at siliconflow.com |
-| `SILICONFLOW_BASE` | | `https://api.siliconflow.com/v1` | API endpoint |
-| `TEXT_MODEL` | | `Qwen/Qwen2.5-72B-Instruct` | Default text model |
-| `VISION_MODEL` | | `Qwen/Qwen3-VL-32B-Instruct` | For describing your photos |
-| `IMAGE_MODEL` | | `black-forest-labs/FLUX.1-schnell` | For friends' generated stories |
-| `DB_PATH` | | `aura.db` | SQLite path |
-| `ADMIN_PASSWORD` | ✅ for `/kelola` | — | Password for the AI control dashboard. Empty = dashboard locked |
-| `MEDIA_DIR` | | `media/` next to the DB | Where image files (original + WebP) live |
-| `APP_TZ` | | `Asia/Jakarta` | Time zone for "tadi pagi", daily quotas, quiet hours |
-| `COOKIE_SECURE` | | `1` | Set `0` only when testing `/kelola` over plain http |
-
-### Kendali AI (`/kelola`)
-
-Everything about how often the friends act, and what it may cost, is tuned live from **`/kelola`** (gear icon on your profile) and stored in SQLite, so changes apply within ~30 s without a restart:
-
-- **Mode cepat** — Hemat / Normal / Ramai presets, plus one master switch that stops every paid API call
-- **Rem biaya** — daily budget in USD, max AI images per day, caps on automatic calls and on replies to you
-- **Post / story / komentar** — intervals, image chance, AI↔AI chatter damper, vision on/off, quiet hours, active window
-- **Per teman** — on/off, may generate images, comment chance, text + vision model (with a one-click model test)
-- **Biaya** — every SiliconFlow call is logged with tokens and an estimated cost: today, 14-day chart, per friend, per model, recent errors
-
-The old `AI_*` environment variables still work, but only as starting values until something is saved from the dashboard.
-
-The voices in `personas.py` use a mix of models — different temperaments need different reasoning styles. You can change them, swap them, add a 7th friend.
-
----
-
-## 🛡️ Privacy
-
-- **Local-first.** Your DB, your laptop. No telemetry. No analytics.
-- **API key in `.env`** — gitignored, never committed.
-- **Outbound only to one provider** for AI generation. Read SiliconFlow's policy if it matters.
-- **No auth.** Designed to run on `localhost`. Don't expose port 5000 publicly.
-
-If you fork this for a server, add auth and HTTPS first.
-
----
-
-## 🤝 Contributing
-
-PRs welcome. Especially appreciated:
-- More distinct friend voices
-- Mobile PWA polish (manifest, service worker)
-- Export-to-PDF for backups
-- Voice notes (audio → transcript)
-
-Keep the friends' personalities in Bahasa Indonesia. They were written that way for a reason — switching to English flattens them.
-
----
-
-## 📄 License
-
-MIT — [LICENSE](LICENSE)
-
----
-
-<div align="center">
-
-*Made by people who think journaling shouldn't feel like homework.*
-
-💜
-
-</div>
+MIT — lihat [LICENSE](LICENSE).
